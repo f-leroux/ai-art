@@ -1,121 +1,137 @@
-import React, { useMemo, useState } from "https://esm.sh/react@18";
+import React, { useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18";
+import * as L from "https://esm.sh/leaflet@1.9.4";
 
-const periods = ["Ancient Echo", "Industrial Dawn", "Far Future"];
+const periods = ["antiquity", "modern", "future"];
 
 const locations = [
-  { id: "andes", name: "Andean Peaks", position: { top: "55%", left: "20%" } },
-  { id: "cairo", name: "Cairo", position: { top: "48%", left: "46%" } },
-  { id: "kyoto", name: "Kyoto", position: { top: "50%", left: "70%" } },
-  { id: "lagos", name: "Lagos", position: { top: "58%", left: "40%" } },
-  { id: "antarctica", name: "Antarctic Frontier", position: { top: "82%", left: "52%" } },
+  { id: "rome", name: "Rome, Italy", position: { top: "45%", left: "45%" }, coords: [41.9028, 12.4964] },
+  { id: "istanbul", name: "Istanbul, Türkiye", position: { top: "42%", left: "50%" }, coords: [41.0082, 28.9784] },
+  { id: "timbuktu", name: "Timbuktu, Mali", position: { top: "55%", left: "38%" }, coords: [16.7666, -3.0026] },
+  { id: "mexico", name: "Mexico City, Mexico", position: { top: "52%", left: "18%" }, coords: [19.4326, -99.1332] },
+  { id: "tokyo", name: "Tokyo, Japan", position: { top: "48%", left: "72%" }, coords: [35.6762, 139.6503] },
 ];
 
 const sceneLibrary = {
-  andes: {
-    "Ancient Echo": {
-      title: "Sun-Scribed Ridges",
+  rome: {
+    antiquity: {
+      title: "Colosseum Echoes",
       description:
-        "Incan astronomers etch mirrored glyphs into mountain faces, guiding solar drones that weave glacial rainbows.",
+        "Spectral gladiators conduct symphonies in marble amphitheaters while AI emperors debate eternal governance.",
+      image: "./images/space_time/rome-antiquity.png",
       palette: ["#2a1e3f", "#6a3f84", "#f4d272"],
     },
-    "Industrial Dawn": {
-      title: "Steam Condor Works",
+    modern: {
+      title: "Steam Aqueducts",
       description:
-        "Copper-plated airships harvest thin air to power suspended cities linked by woven bridges of shimmering fiber.",
+        "Victorian engineers extend Roman waterways with copper pipes and steam-driven fountains throughout the city.",
+      image: "./images/space_time/rome-modern.png",
       palette: ["#1d1f2b", "#385468", "#9fc9d9"],
     },
-    "Far Future": {
-      title: "Quipu Nebulae",
+    future: {
+      title: "Quantum Forum",
       description:
-        "Neutrino observatories float above peaks, their cables glowing like cosmic quipus whispering stellar forecasts.",
+        "Holographic senators debate in floating basilicas while ancient algorithms govern digital citizenship.",
+      image: "./images/space_time/rome-future.png",
       palette: ["#0b1a2f", "#1f6b9a", "#73f2ff"],
     },
   },
-  cairo: {
-    "Ancient Echo": {
-      title: "Phosphor Pyramids",
+  istanbul: {
+    antiquity: {
+      title: "Byzantine Bridges",
       description:
-        "Hieroglyphic drones trace auroral sandstorms across the plateau while holographic sphinxes debate philosophy.",
+        "Golden mosaics float across the Bosphorus as mechanical muezzins call faithful drones to luminous minarets.",
+      image: "./images/space_time/istanbul-antiquity.png",
       palette: ["#2b1507", "#8b451c", "#f5c67a"],
     },
-    "Industrial Dawn": {
-      title: "Clockwork Canals",
+    modern: {
+      title: "Ottoman Clockwork",
       description:
-        "Steam towers distill Nile mist into resonant light, powering bazaars alive with kinetic calligraphy.",
+        "Steam-powered ferries navigate between copper-domed bazaars where mechanical artisans craft kinetic carpets.",
+      image: "./images/space_time/istanbul-modern.png",
       palette: ["#1d1f24", "#4b5f73", "#eac87a"],
     },
-    "Far Future": {
-      title: "Solar Mirage Bazaar",
+    future: {
+      title: "Bosphorus Portal",
       description:
-        "Floating markets shimmer under adaptive sunscreens while AI-guided caravans ferry spices through the stratosphere.",
+        "Quantum tunnels connect continents while AI sultans govern from crystalline palaces spanning dimensions.",
+      image: "./images/space_time/istanbul-future.png",
       palette: ["#0d1b2a", "#3a506b", "#f9d371"],
     },
   },
-  kyoto: {
-    "Ancient Echo": {
-      title: "Lantern Grove",
+  timbuktu: {
+    antiquity: {
+      title: "Desert Manuscript",
       description:
-        "Bamboo forests glow with bioluminescent haiku, synced to the rhythm of distant temple bells.",
+        "Sand scribes etch holographic texts on dunes while caravans of light traverse ancient trade algorithms.",
+      image: "./images/space_time/timbuktu-antiquity.png",
       palette: ["#120c1b", "#3c245c", "#f2a7c5"],
     },
-    "Industrial Dawn": {
-      title: "Silk Circuit Gardens",
+    modern: {
+      title: "Salt Steam Mills",
       description:
-        "Mechanical koi weave through conductive streams, powering tea houses that remix weather into music.",
+        "Victorian salt traders power their machinery with Saharan winds, creating oasis factories from desert mirages.",
+      image: "./images/space_time/timbuktu-modern.png",
       palette: ["#0c1724", "#233d63", "#8fc1ff"],
     },
-    "Far Future": {
-      title: "Neon Torii Array",
+    future: {
+      title: "Quantum Caravan",
       description:
-        "Hovering torii gates map quantum pilgrimages, painting the sky with iterative fractal prayers.",
+        "Nomadic data streams cross digital deserts while AI griots preserve humanity's stories in crystalline libraries.",
+      image: "./images/space_time/timbuktu-future.png",
       palette: ["#050816", "#272b6a", "#b99dff"],
     },
   },
-  lagos: {
-    "Ancient Echo": {
-      title: "River Oracle",
+  mexico: {
+    antiquity: {
+      title: "Feathered Circuits",
       description:
-        "Griot-led canoes trail luminescent scripts that archive oral histories across tidal wetlands.",
+        "Quetzal-winged drones spiral around pyramid antennas broadcasting ancestral knowledge through jade networks.",
+      image: "./images/space_time/mexico-antiquity.png",
       palette: ["#04160f", "#195338", "#7bdba9"],
     },
-    "Industrial Dawn": {
-      title: "Harbor of Harmonics",
+    modern: {
+      title: "Volcanic Foundries",
       description:
-        "Wave turbines tuned to talking drums power markets draped in woven copper photovoltaic cloth.",
+        "Steam-powered chinampas float on engineered lakes while copper suns power the mechanical heart of the valley.",
+      image: "./images/space_time/mexico-modern.png",
       palette: ["#051b2c", "#134d73", "#67cff2"],
     },
-    "Far Future": {
-      title: "Lagoon Megapolis",
+    future: {
+      title: "Tenochtitlan Rising",
       description:
-        "Bioengineered mangroves cradle levitating transit pods projecting ancestral constellations onto the surf.",
+        "Floating pyramids orbit the stratosphere while quantum priests conduct ceremonies in zero-gravity temples.",
+      image: "./images/space_time/mexico-future.png",
       palette: ["#021526", "#0f4c75", "#4fc0e5"],
     },
   },
-  antarctica: {
-    "Ancient Echo": {
-      title: "Aurora Archives",
+  tokyo: {
+    antiquity: {
+      title: "Neon Bamboo",
       description:
-        "Glacial caverns preserve extinct choruses; sonic archaeologists translate them into prismatic sculptures.",
+        "Bioluminescent cherry blossoms sync with ancient temple bells while robotic geishas perform in holographic gardens.",
+      image: "./images/space_time/tokyo-antiquity.png",
       palette: ["#01121f", "#134361", "#9be7ff"],
     },
-    "Industrial Dawn": {
-      title: "Steam Halo Stations",
+    modern: {
+      title: "Meiji Mechanisms",
       description:
-        "Research domes emit rings of protective vapor, igniting borealis halos etched with navigation runes.",
+        "Steam-driven rickshaws navigate copper-plated districts where mechanical craftsmen weave electric silk.",
+      image: "./images/space_time/tokyo-modern.png",
       palette: ["#06192e", "#2f536d", "#d0f4ff"],
     },
-    "Far Future": {
-      title: "Crystalline Choir",
+    future: {
+      title: "Cyber Shrine",
       description:
-        "Quantum glaciers resonate with AI hymns, summoning light bridges for explorers charting subsurface oceans.",
+        "Neural torii gates map digital pilgrimages while AI spirits inhabit quantum shrines in the metaverse.",
+      image: "./images/space_time/tokyo-future.png",
       palette: ["#020b16", "#173b5f", "#7ec8f8"],
     },
   },
 };
 
 const WorldExplorerScreen = () => {
-  const [selectedLocation, setSelectedLocation] = useState(locations[0].id);
-  const [selectedPeriod, setSelectedPeriod] = useState(periods[0]);
+  const [selectedLocation, setSelectedLocation] = useState("rome");
+  const [selectedPeriod, setSelectedPeriod] = useState("modern");
 
   const scene = useMemo(() => sceneLibrary[selectedLocation][selectedPeriod], [selectedLocation, selectedPeriod]);
 
@@ -123,6 +139,71 @@ const WorldExplorerScreen = () => {
     const [a, b, c] = scene.palette;
     return `linear-gradient(140deg, ${a}, ${b} 60%, ${c})`;
   }, [scene]);
+
+  const mapElementRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markerByIdRef = useRef({});
+
+  useEffect(() => {
+    if (!mapElementRef.current || mapInstanceRef.current) {
+      return;
+    }
+
+    const map = L.map(mapElementRef.current, {
+      center: [0, 0],
+      zoom: 1.8,
+      minZoom: 1.8,
+      maxZoom: 1.8,
+      worldCopyJump: false,
+      attributionControl: true,
+      zoomControl: false,
+      scrollWheelZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      touchZoom: false,
+      keyboard: false,
+    });
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors",
+      maxZoom: 19,
+      noWrap: true,
+    }).addTo(map);
+
+    const defaultStyle = { radius: 6, color: "#7f5eff", weight: 2, fillColor: "#ffffff", fillOpacity: 0.9 };
+    const activeStyle = { radius: 8, color: "#ffffff", weight: 3, fillColor: "#7f5eff", fillOpacity: 0.95 };
+
+    const markers = locations.map((loc) => {
+      const marker = L.circleMarker(loc.coords, defaultStyle)
+        .addTo(map)
+        .bindTooltip(loc.name, { direction: "top", offset: [0, -6] })
+        .on("click", () => setSelectedLocation(loc.id));
+      markerByIdRef.current[loc.id] = marker;
+      return marker;
+    });
+
+    // Removed initial fitBounds to keep a world view at a fixed zoom
+
+    mapInstanceRef.current = map;
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+      markerByIdRef.current = {};
+    };
+  }, []);
+
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const defaultStyle = { radius: 6, color: "#7f5eff", weight: 2, fillColor: "#ffffff", fillOpacity: 0.9 };
+    const activeStyle = { radius: 8, color: "#ffffff", weight: 3, fillColor: "#7f5eff", fillOpacity: 0.95 };
+
+    Object.entries(markerByIdRef.current).forEach(([id, marker]) => {
+      marker.setStyle(id === selectedLocation ? activeStyle : defaultStyle);
+    });
+  }, [selectedLocation]);
 
   return (
     <section className="world-explorer">
@@ -138,17 +219,7 @@ const WorldExplorerScreen = () => {
         <div className="map-panel">
           <h3>Select a Location</h3>
           <div className="map-canvas">
-            <span className="map-outline" aria-hidden />
-            {locations.map((location) => (
-              <button
-                key={location.id}
-                className={`map-marker${selectedLocation === location.id ? " active" : ""}`}
-                style={location.position}
-                onClick={() => setSelectedLocation(location.id)}
-              >
-                {location.name}
-              </button>
-            ))}
+            <div ref={mapElementRef} className="leaflet-map" aria-label="World map" />
           </div>
         </div>
 
@@ -162,19 +233,19 @@ const WorldExplorerScreen = () => {
                   className={period === selectedPeriod ? "active" : ""}
                   onClick={() => setSelectedPeriod(period)}
                 >
-                  {period}
+                  {period.charAt(0).toUpperCase() + period.slice(1)}
                 </button>
               ))}
             </div>
           </div>
 
           <div className="visual-panel">
-            <div className="visual-scene" style={{ background: gradient }}>
-              <span>{scene.title}</span>
-            </div>
-            <div className="selection-summary">
-              <h3>{scene.title}</h3>
-              <p>{scene.description}</p>
+            <div className="visual-scene" style={{ 
+              backgroundImage: `url(${scene.image})`, 
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat'
+            }}>
             </div>
           </div>
         </div>
