@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Global Atlas — AI Alternate Histories</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Global Atlas</h1>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="timeline.html">Timeline Lab</a>
+        <a href="atlas.html">Global Atlas</a>
+      </nav>
+    </header>
+
+    <main class="atlas-layout">
+      <section class="map-wrapper">
+        <svg
+          class="world-map"
+          viewBox="0 0 800 400"
+          role="img"
+          aria-labelledby="atlas-title"
+        >
+          <title id="atlas-title">Speculative world map</title>
+          <g fill="none" stroke-width="0">
+            <path
+              id="north-america"
+              class="region"
+              d="M100 120 C140 40, 260 30, 300 110 C350 170, 320 210, 250 210 C220 240, 180 230, 150 200 Z"
+              tabindex="0"
+            ></path>
+            <path
+              id="south-america"
+              class="region"
+              d="M250 220 C280 220, 320 240, 330 300 C320 340, 300 360, 280 370 C260 360, 240 330, 230 290 Z"
+              tabindex="0"
+            ></path>
+            <path
+              id="europe"
+              class="region"
+              d="M360 110 C390 80, 440 70, 470 100 C460 130, 430 150, 390 150 Z"
+              tabindex="0"
+            ></path>
+            <path
+              id="africa"
+              class="region"
+              d="M390 160 C430 160, 470 190, 480 250 C470 300, 430 320, 400 290 C380 250, 360 220, 370 190 Z"
+              tabindex="0"
+            ></path>
+            <path
+              id="asia"
+              class="region"
+              d="M470 110 C520 80, 600 90, 650 130 C670 170, 650 210, 610 220 C570 210, 530 190, 500 170 Z"
+              tabindex="0"
+            ></path>
+            <path
+              id="oceania"
+              class="region"
+              d="M620 250 C650 250, 690 260, 700 290 C680 310, 640 320, 610 300 Z"
+              tabindex="0"
+            ></path>
+          </g>
+        </svg>
+      </section>
+
+      <section class="atlas-card" aria-live="polite">
+        <h2 class="section-title">Atmospheric Snapshots</h2>
+        <div class="atlas-controls">
+          <label for="period-select">Period</label>
+          <select id="period-select" class="atlas-select">
+            <option value="ancient">Ancient</option>
+            <option value="renaissance">Renaissance</option>
+            <option value="industrial">Industrial</option>
+            <option value="future">Future</option>
+          </select>
+        </div>
+        <p id="atlas-description">
+          Choose a region and era to reveal an AI art vignette.
+        </p>
+        <div class="period-badges" id="period-badges"></div>
+        <div class="atlas-visual" id="atlas-visual"></div>
+      </section>
+    </main>
+
+    <footer>
+      Travel the atlas, remix prompts, and imagine collaborative futures.
+    </footer>
+
+    <script src="scripts/atlas.js" defer></script>
+  </body>
+</html>

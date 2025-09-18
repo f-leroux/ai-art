@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timeline Lab — AI Alternate Histories</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Timeline Lab</h1>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="timeline.html">Timeline Lab</a>
+        <a href="atlas.html">Global Atlas</a>
+      </nav>
+    </header>
+
+    <main class="timeline-layout">
+      <section>
+        <h2 class="section-title">Pivotal Moments</h2>
+        <p>
+          Tap a moment to witness a counterfactual branch. Each branch sketches the
+          aesthetic of a world that blossomed from a single altered decision.
+        </p>
+        <div class="timeline-list" id="timeline-list"></div>
+      </section>
+      <section class="branch-panel" aria-live="polite">
+        <div class="branch-content" id="branch-content">
+          <h2 class="branch-title">Select a moment to diverge.</h2>
+          <p class="muted">
+            The branch visualizer will render AI art notes and cultural annotations for
+            your chosen alternate timeline.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      Craft new chronologies, then share your favorite speculative timelines.
+    </footer>
+
+    <script src="scripts/timeline.js" defer></script>
+  </body>
+</html>
