@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "https://esm.sh/react@18";
+import React, { useMemo, useState, useEffect, useLayoutEffect, useRef } from "https://esm.sh/react@18";
 
 const timelineEvents = [
   {
@@ -95,6 +95,63 @@ const TimelineScreen = () => {
     return `linear-gradient(135deg, ${a}, ${b} 55%, ${c})`;
   }, [selectedCounterfactual]);
 
+  // Shared styling for timeline + branch
+  const LINE_THICKNESS = 8;
+  const LINE_COLOR = "#C9CBD6"; // opaque so it matches exactly regardless of background
+  const DOT_BORDER = Math.max(2, Math.floor(LINE_THICKNESS / 2));
+
+  // Animation + layout refs/state
+  const trackRef = useRef(null);
+  const pathRef = useRef(null);
+  const markerDotRefs = useRef({});
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [trackHeight, setTrackHeight] = useState(0);
+  const [branchAnim, setBranchAnim] = useState({ key: 0, startX: 0, startY: 0, direction: 1 });
+  const [hasInteracted, setHasInteracted] = useState(false);
+
+  useLayoutEffect(() => {
+    const update = () => {
+      if (!trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      setTrackWidth(rect.width);
+      setTrackHeight(rect.height);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  const branchPath = useMemo(() => {
+    if (!trackWidth || !trackHeight) return "";
+    const startX = Math.round(Math.max(8, Math.min(trackWidth - 8, branchAnim.startX)));
+    const startY = Math.round(Math.max(8, Math.min(trackHeight - 8, branchAnim.startY)));
+    const endX = Math.round(Math.max(8, Math.min(trackWidth - 12, startX + 160)));
+    const endY = Math.round(Math.max(8, Math.min(trackHeight - 12, startY + 140)));
+    return `M ${startX} ${startY} L ${startX} ${endY} L ${endX} ${endY}`;
+  }, [branchAnim, trackWidth, trackHeight]);
+
+  const branchEnd = useMemo(() => {
+    if (!trackWidth || !trackHeight) return null;
+    const startX = Math.round(Math.max(8, Math.min(trackWidth - 8, branchAnim.startX)));
+    const startY = Math.round(Math.max(8, Math.min(trackHeight - 8, branchAnim.startY)));
+    const endX = Math.round(Math.max(8, Math.min(trackWidth - 12, startX + 160)));
+    const endY = Math.round(Math.max(8, Math.min(trackHeight - 12, startY + 140)));
+    return { x: endX, y: endY };
+  }, [branchAnim, trackWidth, trackHeight]);
+
+  useEffect(() => {
+    if (!pathRef.current) return;
+    const path = pathRef.current;
+    const length = path.getTotalLength();
+    path.style.transition = "none";
+    path.style.strokeDasharray = `${length}`;
+    path.style.strokeDashoffset = `${length}`;
+    // force reflow
+    path.getBoundingClientRect();
+    path.style.transition = "stroke-dashoffset 700ms ease-out";
+    path.style.strokeDashoffset = "0";
+  }, [branchAnim.key]);
+
   return (
     <section className="timeline-screen">
       <header>
@@ -106,58 +163,135 @@ const TimelineScreen = () => {
       </header>
 
       <div className="timeline-wrapper">
-        <div className="timeline-track">
-          <div className="timeline-markers">
-            <div className="timeline-line" aria-hidden />
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <div className="timeline-track" ref={trackRef} style={{ position: "relative" }}>
+          {/* Base line layer as SVG for perfect match with branch */}
+          <svg
+            width="100%"
+            height={trackHeight || 0}
+            viewBox={`0 0 ${trackWidth} ${trackHeight || 0}`}
+            preserveAspectRatio="none"
+            style={{ position: "absolute", inset: 0, zIndex: 1, pointerEvents: "none" }}
+            aria-hidden
+          >
+            {trackWidth > 0 && trackHeight > 0 && (
+              <path d={`M 8 ${Math.round(trackHeight / 2)} H ${Math.max(8, trackWidth - 8)}`} stroke={LINE_COLOR} strokeWidth={LINE_THICKNESS} strokeLinecap="round" fill="none" />
+            )}
+          </svg>
+
+          <div className="timeline-markers" style={{ position: "relative", height: 96, zIndex: 3 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", height: "100%" }}>
               {timelineEvents.map((event) => (
                 <button
                   key={event.id}
-                  className={`marker-button${event.id === selectedEvent.id ? " active" : ""}`}
+                  className={`marker-button`}
+                  style={{
+                    position: "relative",
+                    background: "transparent",
+                    border: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "flex-start",
+                    alignItems: "center",
+                    gap: 8,
+                    cursor: "pointer",
+                    color: "#ffffff",
+                    height: "100%",
+                    outline: "none",
+                  }}
                   onClick={() => {
                     setSelectedEventId(event.id);
                     setSelectedCounterfactualId(event.counterfactuals[0].id);
+                    setHasInteracted(true);
+                    if (trackRef.current) {
+                      const trackRect = trackRef.current.getBoundingClientRect();
+                      const dotEl = markerDotRefs.current[event.id];
+                      const dotRect = dotEl ? dotEl.getBoundingClientRect() : null;
+                      const startX = dotRect ? Math.round(dotRect.left + dotRect.width / 2 - trackRect.left) : 0;
+                      const startY = dotRect ? Math.round(dotRect.top + dotRect.height / 2 - trackRect.top) : 0;
+                      const direction = startX < trackRect.width / 2 ? 1 : -1;
+                      setBranchAnim({ key: Date.now(), startX, startY, direction });
+                    }
                   }}
                 >
-                  <span />
-                  <span>
-                    {event.year}
-                    <br />
-                    {event.title}
-                  </span>
+                  <span style={{ position: "absolute", left: "50%", bottom: "calc(50% + 30px)", transform: "translateX(-50%)", fontSize: 12, lineHeight: 1, color: "#ffffff", pointerEvents: "none" }}>{event.year}</span>
+                  <span
+                    ref={(el) => {
+                      markerDotRefs.current[event.id] = el;
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: "50%",
+                      left: "50%",
+                      transform: "translate(0%, -115%)",
+                      width: LINE_THICKNESS * 2,
+                      height: LINE_THICKNESS * 2,
+                      borderRadius: 9999,
+                      backgroundColor: "#0b0b0c",
+                      border: `${DOT_BORDER}px solid #ffffff`,
+                      boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+                    }}
+                  />
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="timeline-details">
-            <article className="card">
-              <h3>{selectedEvent.title}</h3>
-              <p>{selectedEvent.description}</p>
-            </article>
-
-            <div className="counterfactual-grid">
-              {selectedEvent.counterfactuals.map((branch) => (
-                <button
-                  key={branch.id}
-                  className={`counterfactual-card${branch.id === selectedCounterfactual.id ? " active" : ""}`}
-                  onClick={() => setSelectedCounterfactualId(branch.id)}
-                >
-                  <h4>{branch.title}</h4>
-                  <p>{branch.summary}</p>
-                </button>
-              ))}
-            </div>
-
-            <div className="visual-panel">
-              <div className="visual-scene" style={{ background: gradient }}>
-                <span>{selectedCounterfactual.title}</span>
-              </div>
-              <p className="visual-description">{selectedCounterfactual.narrative}</p>
-            </div>
-          </div>
+          {/* Branch animation overlay spanning the whole track */}
+          {hasInteracted && branchPath && (
+            <svg
+              key={branchAnim.key}
+              width="100%"
+              height={trackHeight || 0}
+              viewBox={`0 0 ${trackWidth} ${trackHeight || 0}`}
+              preserveAspectRatio="none"
+              style={{ position: "absolute", left: 0, top: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 2 }}
+              aria-hidden
+            >
+              <path
+                ref={pathRef}
+                d={branchPath}
+                stroke={LINE_COLOR}
+                strokeWidth={LINE_THICKNESS}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                fill="none"
+              />
+              {branchEnd && (
+                <circle cx={branchEnd.x} cy={branchEnd.y} r={LINE_THICKNESS*0.8} fill="#0b0b0c" stroke="#ffffff" strokeWidth={DOT_BORDER} />
+              )}
+            </svg>
+          )}
         </div>
       </div>
+
+      {hasInteracted && (
+        <div className="timeline-details">
+          <article className="card">
+            <h3>{selectedEvent.title}</h3>
+            <p>{selectedEvent.description}</p>
+          </article>
+
+          <div className="counterfactual-grid">
+            {selectedEvent.counterfactuals.map((branch) => (
+              <button
+                key={branch.id}
+                className={`counterfactual-card${branch.id === selectedCounterfactual.id ? " active" : ""}`}
+                onClick={() => setSelectedCounterfactualId(branch.id)}
+              >
+                <h4>{branch.title}</h4>
+                <p>{branch.summary}</p>
+              </button>
+            ))}
+          </div>
+
+          <div className="visual-panel">
+            <div className="visual-scene" style={{ background: gradient }}>
+              <span>{selectedCounterfactual.title}</span>
+            </div>
+            <p className="visual-description">{selectedCounterfactual.narrative}</p>
+          </div>
+        </div>
+      )}
     </section>
   );
 };
