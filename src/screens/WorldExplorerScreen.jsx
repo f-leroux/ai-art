@@ -226,16 +226,21 @@ const WorldExplorerScreen = () => {
         <div className="explorer-panel">
           <div>
             <h3>Choose an Era</h3>
-            <div className="period-tabs">
-              {periods.map((period) => (
-                <button
-                  key={period}
-                  className={period === selectedPeriod ? "active" : ""}
-                  onClick={() => setSelectedPeriod(period)}
-                >
-                  {period.charAt(0).toUpperCase() + period.slice(1)}
-                </button>
-              ))}
+            <div className="period-slider-container">
+              <input
+                type="range"
+                min="0"
+                max="2"
+                step="1"
+                value={periods.indexOf(selectedPeriod)}
+                onChange={(e) => setSelectedPeriod(periods[parseInt(e.target.value)])}
+                className="period-slider"
+              />
+              <div className="slider-labels">
+                <span>Antiquity</span>
+                <span>Modern</span>
+                <span>Future</span>
+              </div>
             </div>
           </div>
 
