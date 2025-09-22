@@ -15,10 +15,10 @@ const experiences = [
     path: "/worlds",
   },
   {
-    title: "Coming Soon",
+    title: "Adjectives",
     description:
-      "Generative galleries, audio-reactive poetry, collaborative sketchpads, and more experiments in machine-made myth.",
-    path: "/",
+      "Transform architectural visions with the power of language. Click adjectives to watch AI reshape a house through descriptive imagination.",
+    path: "/adjectives",
   },
 ];
 

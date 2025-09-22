@@ -15,6 +15,7 @@ const Navigation = () => {
           </NavLink>
           <NavLink to="/timeline">Counterfactual Timeline</NavLink>
           <NavLink to="/worlds">World Explorer</NavLink>
+          <NavLink to="/adjectives">Adjectives</NavLink>
         </div>
       </nav>
     </header>
