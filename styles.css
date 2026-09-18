@@ -670,3 +670,115 @@ body {
     font-size: 0.95rem;
   }
 }
+
+/* A Century in Ink */
+.valley-screen {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.valley-hero {
+  max-width: 760px;
+}
+
+.valley-hero h1 {
+  margin: 0 0 0.6rem;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.valley-hero p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.valley-frame {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  background: #f4ecd8;
+}
+
+.valley-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.valley-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+}
+
+.valley-button {
+  background: var(--panel);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  color: var(--text);
+  padding: 0.55rem 1.1rem;
+  font: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.valley-button:hover {
+  border-color: var(--accent);
+}
+
+.valley-button.small {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.valley-button.active {
+  background: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.valley-speeds {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.valley-slider {
+  flex: 1 1 240px;
+  accent-color: var(--accent);
+}
+
+.valley-readout {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  min-width: 190px;
+}
+
+.valley-year {
+  font-weight: 600;
+}
+
+.valley-season {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.valley-notes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem 1.5rem;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.valley-notes strong {
+  color: var(--text);
+}

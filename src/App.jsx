@@ -5,6 +5,7 @@ import HomeScreen from "./screens/HomeScreen.jsx";
 import TimelineScreen from "./screens/TimelineScreen.jsx";
 import WorldExplorerScreen from "./screens/WorldExplorerScreen.jsx";
 import AdjectivesScreen from "./screens/AdjectivesScreen.jsx";
+import InkValleyScreen from "./screens/InkValleyScreen.jsx";
 
 const App = () => {
   return (
@@ -16,6 +17,7 @@ const App = () => {
           <Route path="/timeline" element={<TimelineScreen />} />
           <Route path="/worlds" element={<WorldExplorerScreen />} />
           <Route path="/adjectives" element={<AdjectivesScreen />} />
+          <Route path="/valley" element={<InkValleyScreen />} />
         </Routes>
       </main>
     </div>

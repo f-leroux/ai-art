@@ -20,6 +20,12 @@ const experiences = [
       "Transform architectural visions with the power of language. Click adjectives to watch AI reshape a house through descriptive imagination.",
     path: "/adjectives",
   },
+  {
+    title: "A Century in Ink",
+    description:
+      "A living hand-drawn valley computed stroke by stroke, no images at all. Watch a hundred years pass, raise the wind, and plant trees that grow old.",
+    path: "/valley",
+  },
 ];
 
 const HomeScreen = () => {

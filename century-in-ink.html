@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>A Century in Ink</title>
+    <style>
+      :root { color-scheme: light; --ink: #1e1b2e; --paper: #f4ecd8; }
+      html, body { margin: 0; background: #14121f; color: var(--paper); font-family: Georgia, "Times New Roman", serif; }
+      .stage { max-width: 1280px; margin: 0 auto; padding: 16px; }
+      canvas { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 6px; box-shadow: 0 30px 80px rgba(0,0,0,0.5); cursor: crosshair; touch-action: none; }
+      .bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-top: 14px; font-size: 14px; }
+      .bar button { background: transparent; color: var(--paper); border: 1px solid rgba(244,236,216,0.35); border-radius: 999px; padding: 6px 14px; font: inherit; cursor: pointer; }
+      .bar button:hover { border-color: var(--paper); }
+      .bar button.on { background: var(--paper); color: var(--ink); }
+      .bar input[type=range] { flex: 1 1 220px; accent-color: #f4ecd8; }
+      .caption { opacity: 0.75; font-style: italic; }
+      h1 { font-weight: 400; font-size: 22px; letter-spacing: 0.04em; margin: 0 0 10px; }
+      h1 small { opacity: 0.6; font-size: 13px; margin-left: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <h1>A Century in Ink <small>every mark is code</small></h1>
+      <canvas id="c" width="1280" height="720"></canvas>
+      <div class="bar">
+        <button id="play">pause</button>
+        <span>speed</span>
+        <button data-speed="0.5">½×</button>
+        <button data-speed="1" class="on">1×</button>
+        <button data-speed="3">3×</button>
+        <button data-speed="8">8×</button>
+        <input id="year" type="range" min="0" max="100" step="0.01" value="0" />
+        <span id="label" class="caption">year 0 · spring dawn</span>
+        <button id="new">new valley</button>
+      </div>
+      <p class="caption">One year is one day. Drag across the scene to raise the wind. Click the ground to plant a tree, then scrub the century to watch it grow old.</p>
+    </div>
+    <script type="module">
+      import { createValley } from './src/ink/valley.js';
+      const canvas = document.getElementById('c');
+      const label = document.getElementById('label');
+      const slider = document.getElementById('year');
+      const playBtn = document.getElementById('play');
+      const params = new URLSearchParams(location.search);
+      let scrubbing = false;
+      const v = createValley(canvas, {
+        seed: params.has('seed') ? Number(params.get('seed')) : undefined,
+        onState(s) {
+          label.textContent = `year ${Math.floor(s.year)} · ${s.season}${s.planted ? ` · ${s.planted} planted by you` : ''}`;
+          if (!scrubbing) slider.value = s.year;
+          playBtn.textContent = s.playing ? 'pause' : s.done ? 'again' : 'play';
+        },
+      });
+      window.valley = v;
+      if (params.has('year')) v.setYear(Number(params.get('year')));
+      if (params.has('paused')) v.pause();
+      playBtn.onclick = () => v.toggle();
+      document.getElementById('new').onclick = () => v.regenerate();
+      for (const b of document.querySelectorAll('[data-speed]')) b.onclick = () => { v.setSpeed(Number(b.dataset.speed)); document.querySelectorAll('[data-speed]').forEach((x) => x.classList.toggle('on', x === b)); };
+      slider.addEventListener('pointerdown', () => (scrubbing = true));
+      slider.addEventListener('pointerup', () => (scrubbing = false));
+      slider.addEventListener('input', () => v.setYear(Number(slider.value)));
+      let down = null;
+      canvas.addEventListener('pointerdown', (e) => { down = { x: e.clientX, y: e.clientY, moved: 0 }; canvas.setPointerCapture(e.pointerId); });
+      canvas.addEventListener('pointermove', (e) => { if (!down) return; const dx = e.clientX - down.x; down.moved += Math.abs(e.movementX) + Math.abs(e.movementY); v.stirWind(e.movementX * (1280 / canvas.clientWidth)); });
+      canvas.addEventListener('pointerup', (e) => { if (down && down.moved < 6) v.plantAt(e.clientX, e.clientY); down = null; });
+      window.addEventListener('keydown', (e) => { if (e.code === 'Space') { e.preventDefault(); v.toggle(); } });
+    </script>
+  </body>
+</html>
