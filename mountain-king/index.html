@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hall of the Mountain King</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&display=swap" />
+<style>
+  :root { --bg: #0a0605; --fg: #f3e6d0; --muted: rgba(243,230,208,0.6); --accent: #ffb347; }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--fg); font-family: "Cinzel", "Bitstream Charter", Georgia, serif; }
+  body { display: grid; place-items: center; overflow: hidden; }
+  .stage { position: relative; width: 100vw; height: 100vh; display: grid; place-items: center; }
+  canvas { display: block; width: 100vw; height: 56.25vw; max-height: 100vh; max-width: 177.78vh; background: #000; }
+  .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: radial-gradient(ellipse at center, rgba(20,10,6,0.55), rgba(0,0,0,0.85)); transition: opacity 0.6s; }
+  .overlay.hidden { opacity: 0; pointer-events: none; }
+  .card { text-align: center; display: grid; gap: 18px; padding: 24px; max-width: 640px; }
+  .card h1 { font-weight: 700; font-size: clamp(20px, 3.4vw, 40px); letter-spacing: 0.12em; margin: 0; text-transform: uppercase; }
+  .card p { margin: 0; color: var(--muted); font-family: Georgia, serif; font-size: 15px; line-height: 1.6; }
+  .card button { justify-self: center; background: transparent; color: var(--fg); border: 1px solid rgba(243,230,208,0.5); padding: 14px 34px; font: inherit; font-size: 16px; letter-spacing: 0.2em; text-transform: uppercase; cursor: pointer; }
+  .card button:hover, .card button:focus-visible { border-color: var(--accent); color: var(--accent); outline: none; }
+  .card label { color: var(--muted); font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 4px; }
+  .card input { display: none; }
+  .hud { position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(255,255,255,0.08); opacity: 0; transition: opacity 0.3s; }
+  .stage:hover .hud { opacity: 1; }
+  .hud i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .status { position: absolute; top: 16px; left: 16px; font-size: 12px; letter-spacing: 0.15em; color: var(--muted); text-transform: uppercase; }
+  body.render canvas { width: 1920px; height: 1080px; max-width: none; max-height: none; }
+  body.render .overlay, body.render .hud, body.render .status { display: none; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas id="c" width="1920" height="1080"></canvas>
+  <div class="hud"><i id="bar"></i></div>
+  <div class="overlay" id="overlay">
+    <div class="card">
+      <h1>In the Hall of the<br/>Mountain King</h1>
+      <p>Edvard Grieg, 1875. A shadow-theatre chase drawn live in JavaScript: every troll, torch and crystal listens to the music.</p>
+      <button id="play">Play</button>
+      <label>or drop in any audio file <input id="file" type="file" accept="audio/*" /></label>
+      <p id="msg"></p>
+    </div>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+<script>
+// ============================================================ config
+const CONFIG = {
+  audio: 'audio/mountain-king.mp3',
+  title: 'In the Hall of the Mountain King',
+  composer: 'Edvard Grieg · Peer Gynt, Op. 46 (1875)',
+  credit: 'A generative music video · drawn in code',
+};
+const W = 1920, H = 1080;
+const FLOOR = 900;         // near lane floor
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
+const sstep = (a, b, v) => { const t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+
+// ============================================================ deterministic noise
+function ihash(x, y, z) {
+  let h = Math.imul(x | 0, 0x27d4eb2d) ^ Math.imul(y | 0, 0x165667b1) ^ Math.imul(z | 0, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+function noise2(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  let fx = x - xi, fy = y - yi; fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy);
+  const a = ihash(xi, yi, 0), b = ihash(xi + 1, yi, 0), c = ihash(xi, yi + 1, 0), d = ihash(xi + 1, yi + 1, 0);
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy;
+}
+function fbm(x, y, o = 3) { let s = 0, a = 0.5, f = 1, n = 0; for (let i = 0; i < o; i++) { s += a * noise2(x * f, y * f); n += a; a *= 0.5; f *= 2.1; } return s / n; }
+
+// ============================================================ audio analysis
+const FPS_A = 60;
+function fft(re, im) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = -TAU / len, wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let j = 0; j < len / 2; j++) {
+        const ar = re[i + j], ai = im[i + j];
+        const br = re[i + j + len / 2] * cr - im[i + j + len / 2] * ci;
+        const bi = re[i + j + len / 2] * ci + im[i + j + len / 2] * cr;
+        re[i + j] = ar + br; im[i + j] = ai + bi; re[i + j + len / 2] = ar - br; im[i + j + len / 2] = ai - bi;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+}
+function analyse(buffer) {
+  const sr = buffer.sampleRate;
+  const ch = buffer.numberOfChannels;
+  const n = buffer.length;
+  const mono = new Float32Array(n);
+  for (let c = 0; c < ch; c++) { const d = buffer.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / ch; }
+  const N = 2048, hop = sr / FPS_A;
+  const frames = Math.floor(n / hop);
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((TAU * i) / N);
+  const re = new Float32Array(N), im = new Float32Array(N);
+  const BINS = 40;
+  const binEdges = [];
+  for (let b = 0; b <= BINS; b++) binEdges.push(Math.round((60 * Math.pow(9000 / 60, b / BINS)) / (sr / N)));
+  const A = {
+    frames, fps: FPS_A, duration: n / sr,
+    rms: new Float32Array(frames), bass: new Float32Array(frames), mid: new Float32Array(frames), high: new Float32Array(frames),
+    flux: new Float32Array(frames), bflux: new Float32Array(frames), spec: new Float32Array(frames * BINS), BINS,
+  };
+  let prevMag = new Float32Array(N / 2);
+  const mag = new Float32Array(N / 2);
+  const hz = (k) => (k * sr) / N;
+  for (let f = 0; f < frames; f++) {
+    const start = Math.floor(f * hop) - N / 2;
+    let e = 0;
+    for (let i = 0; i < N; i++) { const s = start + i; const v = s >= 0 && s < n ? mono[s] : 0; re[i] = v * win[i]; im[i] = 0; e += v * v; }
+    A.rms[f] = Math.sqrt(e / N);
+    fft(re, im);
+    let bass = 0, mid = 0, high = 0, flux = 0, bflux = 0;
+    for (let k = 1; k < N / 2; k++) {
+      const m = Math.sqrt(re[k] * re[k] + im[k] * im[k]) / N;
+      mag[k] = m;
+      const h = hz(k);
+      if (h < 160) bass += m; else if (h < 2000) mid += m; else if (h < 9000) high += m;
+      const d = Math.log1p(m * 400) - Math.log1p(prevMag[k] * 400);
+      if (d > 0) { flux += d; if (h < 200) bflux += d; }
+    }
+    A.bass[f] = bass; A.mid[f] = mid; A.high[f] = high; A.flux[f] = flux; A.bflux[f] = bflux;
+    for (let b = 0; b < BINS; b++) {
+      let s = 0, c = 0;
+      for (let k = Math.max(1, binEdges[b]); k < Math.max(binEdges[b] + 1, binEdges[b + 1]); k++) { s += mag[k]; c++; }
+      A.spec[f * BINS + b] = Math.log1p((s / Math.max(1, c)) * 600);
+    }
+    const tmp = prevMag; prevMag = mag.slice(); void tmp;
+  }
+  // normalise by high percentiles
+  const pct = (arr, p) => { const s = Array.from(arr).sort((a, b) => a - b); return s[Math.floor(s.length * p)] || 1; };
+  for (const key of ['rms', 'bass', 'mid', 'high', 'flux', 'bflux']) {
+    const arr = A[key]; const top = pct(arr, 0.985) || 1;
+    for (let i = 0; i < frames; i++) arr[i] = clamp(arr[i] / top, 0, 1.4);
+  }
+  { const top = pct(A.spec, 0.99) || 1; for (let i = 0; i < A.spec.length; i++) A.spec[i] = clamp(A.spec[i] / top, 0, 1.2); }
+  // intensity: slow-smoothed loudness, 0..1 over the track
+  const intensity = new Float32Array(frames);
+  let acc = 0; const k1 = 1 / (FPS_A * 1.2);
+  for (let i = 0; i < frames; i++) { acc += (A.rms[i] - acc) * k1; intensity[i] = acc; }
+  // symmetric smoothing (backwards pass) so peaks aren't lagged
+  acc = 0; for (let i = frames - 1; i >= 0; i--) { acc += (intensity[i] - acc) * k1 * 1.5; intensity[i] = (intensity[i] + acc) / 2; }
+  const imax = Math.max(...intensity) || 1;
+  for (let i = 0; i < frames; i++) intensity[i] = clamp(intensity[i] / imax, 0, 1);
+  A.intensity = intensity;
+  // onsets: adaptive threshold on flux
+  const onset = new Float32Array(frames), bonset = new Float32Array(frames);
+  const crash = [];
+  const win2 = Math.round(FPS_A * 0.35);
+  let lastOn = -99, lastB = -99, lastCrash = -99;
+  for (let i = 1; i < frames - 1; i++) {
+    let m = 0, c = 0, mb = 0;
+    for (let j = Math.max(0, i - win2); j < Math.min(frames, i + win2); j++) { m += A.flux[j]; mb += A.bflux[j]; c++; }
+    m /= c; mb /= c;
+    const f = A.flux[i];
+    if (f > m * 1.35 + 0.08 && f >= A.flux[i - 1] && f >= A.flux[i + 1] && i - lastOn > FPS_A * 0.08) { onset[i] = clamp((f - m) / 0.6, 0.25, 1); lastOn = i; }
+    const fb = A.bflux[i];
+    if (fb > mb * 1.4 + 0.1 && fb >= A.bflux[i - 1] && fb >= A.bflux[i + 1] && i - lastB > FPS_A * 0.1) { bonset[i] = clamp((fb - mb) / 0.6, 0.3, 1); lastB = i; }
+  }
+  // crashes: loud, broadband, isolated hits (used for the finale)
+  const rmsTop = pct(A.rms, 0.96);
+  for (let i = 2; i < frames - 2; i++) {
+    if (onset[i] > 0 && A.rms[i] > rmsTop && A.high[i] > 0.75 && i - lastCrash > FPS_A * 0.4) {
+      crash.push(i); lastCrash = i;
+    }
+  }
+  A.onset = onset; A.bonset = bonset; A.crash = crash;
+  // decaying envelopes for the renderer
+  const oenv = new Float32Array(frames), benv = new Float32Array(frames), cenv = new Float32Array(frames);
+  let a = 0, b = 0, cc = 0;
+  const cset = new Set(crash);
+  for (let i = 0; i < frames; i++) {
+    a = Math.max(a * Math.pow(0.02, 1 / (FPS_A * 0.22)), onset[i]);
+    b = Math.max(b * Math.pow(0.02, 1 / (FPS_A * 0.28)), bonset[i]);
+    cc = Math.max(cc * Math.pow(0.02, 1 / (FPS_A * 0.9)), cset.has(i) ? 1 : 0);
+    oenv[i] = a; benv[i] = b; cenv[i] = cc;
+  }
+  A.oenv = oenv; A.benv = benv; A.cenv = cenv;
+  // camera travel & troll population (integrated so rendering is stateless)
+  const cam = new Float32Array(frames), pop = new Uint8Array(frames), appear = [];
+  let x = 0;
+  const MAXT = 16;
+  for (let i = 0; i < frames; i++) {
+    const it = intensity[i];
+    x += (30 + 520 * it * it) / FPS_A;
+    cam[i] = x;
+    const want = it < 0.14 ? 0 : Math.min(MAXT, Math.floor(sstep(0.14, 0.95, it) * MAXT + 1));
+    pop[i] = want;
+    while (appear.length < want) appear.push(i);
+  }
+  A.cam = cam; A.pop = pop; A.appear = appear; A.maxTrolls = MAXT;
+  // where does the music end (trailing silence)?
+  let end = frames - 1; while (end > 0 && A.rms[end] < 0.02) end--; A.endFrame = end;
+  // the loudest moment
+  let best = 0; for (let i = 0; i < frames; i++) if (A.rms[i] > A.rms[best]) best = i; A.peakFrame = best;
+  return A;
+}
+
+// ============================================================ the video
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let A = null;
+let fontReady = false;
+const grain = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const g = c.getContext('2d'); const img = g.createImageData(256, 256); for (let i = 0; i < img.data.length; i += 4) { const v = 110 + ihash(i, 3, 3) * 70; img.data[i] = img.data[i + 1] = img.data[i + 2] = v; img.data[i + 3] = 255; } g.putImageData(img, 0, 0); return c; })();
+
+function frameAt(t) {
+  const i = clamp(Math.floor(t * A.fps), 0, A.frames - 1);
+  const B = A.BINS;
+  const spec = new Float32Array(B);
+  // smooth the spectrum over ±2 frames
+  for (let b = 0; b < B; b++) { let s = 0, c = 0; for (let j = -2; j <= 2; j++) { const k = clamp(i + j, 0, A.frames - 1); s += A.spec[k * B + b]; c++; } spec[b] = s / c; }
+  return {
+    i, t, it: A.intensity[i], rms: A.rms[i], bass: A.bass[i], mid: A.mid[i], high: A.high[i],
+    on: A.oenv[i], bon: A.benv[i], crash: A.cenv[i], cam: A.cam[i], pop: A.pop[i], spec,
+    ended: i >= A.endFrame, tEnd: A.endFrame / A.fps,
+  };
+}
+
+// ---------- palette helpers
+function rgba(r, g, b, a) { return `rgba(${r | 0},${g | 0},${b | 0},${a})`; }
+function mixc(c1, c2, t) { return [lerp(c1[0], c2[0], t), lerp(c1[1], c2[1], t), lerp(c1[2], c2[2], t)]; }
+const COLD = [14, 10, 22], EMBER = [96, 30, 10], BLAZE = [210, 90, 22], GOLD = [255, 190, 90], SILH = [8, 5, 4];
+
+// ---------- silhouette primitives
+function poly(pts, fill) { ctx.fillStyle = fill; ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); ctx.fill(); }
+function blobPath(cx, cy, rx, ry, seed, k = 16, rough = 0.18) {
+  const pts = [];
+  for (let i = 0; i < k; i++) { const a = (i / k) * TAU; const r = 1 + rough * (noise2(Math.cos(a) * 2 + seed, Math.sin(a) * 2 + seed * 0.3) - 0.5) * 2; pts.push([cx + Math.cos(a) * rx * r, cy + Math.sin(a) * ry * r]); }
+  return pts;
+}
+function glow(x, y, r, col, a, blend = 'lighter') {
+  if (a <= 0.002) return;
+  ctx.globalCompositeOperation = blend;
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, rgba(col[0], col[1], col[2], a));
+  g.addColorStop(0.4, rgba(col[0], col[1], col[2], a * 0.35));
+  g.addColorStop(1, rgba(col[0], col[1], col[2], 0));
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  ctx.globalCompositeOperation = 'source-over';
+}
+
+// ---------- layers
+function drawBackdrop(F) {
+  const it = F.it;
+  const base = mixc(COLD, EMBER, sstep(0.05, 0.55, it));
+  const top = mixc(base, [0, 0, 0], 0.7);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, rgba(top[0], top[1], top[2], 1));
+  g.addColorStop(0.55, rgba(base[0], base[1], base[2], 1));
+  g.addColorStop(1, rgba(base[0] * 0.5, base[1] * 0.5, base[2] * 0.5, 1));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  // the great light behind the throne
+  const hot = mixc(EMBER, BLAZE, sstep(0.3, 0.9, it));
+  glow(W / 2, 640, 900, hot, 0.25 + 0.55 * it + 0.3 * F.crash);
+  glow(W / 2, 680, 420, GOLD, 0.08 + 0.35 * it * it + 0.5 * F.crash);
+  // god rays
+  if (it > 0.25) {
+    ctx.globalCompositeOperation = 'lighter';
+    const n = 14;
+    for (let k = 0; k < n; k++) {
+      const a = -Math.PI / 2 + ((k - n / 2) / n) * 2.4 + Math.sin(F.t * 0.15 + k) * 0.04;
+      const wdt = 0.05 + 0.04 * noise2(k, F.t * 0.3);
+      const al = (0.05 + 0.08 * it) * (0.5 + 0.5 * noise2(k * 3.1, F.t * 0.6)) * sstep(0.25, 0.6, it) * (1 + F.crash);
+      ctx.fillStyle = rgba(hot[0] + 60, hot[1] + 50, hot[2] + 20, al);
+      ctx.beginPath(); ctx.moveTo(W / 2, 700);
+      ctx.lineTo(W / 2 + Math.cos(a - wdt) * 1500, 700 + Math.sin(a - wdt) * 1500);
+      ctx.lineTo(W / 2 + Math.cos(a + wdt) * 1500, 700 + Math.sin(a + wdt) * 1500);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+// cave walls: stalactites hanging from the top and rock masses at the sides, per parallax layer
+function caveLayer(F, parallax, seed, tint, alpha, topH, scaleY) {
+  const period = 2400;
+  const off = ((F.cam * parallax) % period + period) % period;
+  ctx.fillStyle = rgba(tint[0], tint[1], tint[2], alpha);
+  for (let rep = -1; rep <= 1; rep++) {
+    const ox = rep * period - off;
+    // ceiling
+    ctx.beginPath(); ctx.moveTo(ox, 0);
+    for (let x = 0; x <= period; x += 24) {
+      const n = fbm(x * 0.0021 + seed, seed * 0.7, 3);
+      const spike = Math.pow(noise2(x * 0.011 + seed * 3, 1.7), 6) * 3.2;
+      ctx.lineTo(ox + x, (topH * (0.35 + n) + spike * topH * 0.9) * scaleY);
+    }
+    ctx.lineTo(ox + period, 0); ctx.closePath(); ctx.fill();
+  }
+}
+function pillarLayer(F, parallax, seed, tint, alpha, scale, spacing, torch, floorY) {
+  const period = spacing * 5;
+  const off = ((F.cam * parallax) % period + period) % period;
+  const out = [];
+  for (let j = -1; j < 7; j++) {
+    const x = j * spacing - off + (ihash(j, seed, 1) - 0.5) * spacing * 0.3;
+    if (x < -300 || x > W + 300) continue;
+    const s = scale * (0.85 + 0.3 * ihash(j, seed, 2));
+    const w = 46 * s, top = floorY - 620 * s;
+    // a rough hewn column with a wider base and capital
+    const pts = [[x - w, floorY + 40], [x - w * 0.8, floorY - 60 * s], [x - w * 0.6, top + 80 * s], [x - w * 1.1, top + 30 * s], [x - w * 1.2, top - 400], [x + w * 1.2, top - 400], [x + w * 1.1, top + 30 * s], [x + w * 0.6, top + 80 * s], [x + w * 0.8, floorY - 60 * s], [x + w, floorY + 40]];
+    poly(pts, rgba(tint[0], tint[1], tint[2], alpha));
+    if (torch) out.push([x, top + 150 * s, s]);
+  }
+  return out;
+}
+function drawTorch(F, x, y, s) {
+  const it = F.it;
+  const flick = 0.6 + 0.4 * noise2(F.t * 9 + x * 0.01, 4.4) + 0.6 * F.high + 0.5 * F.on;
+  const size = (26 + 40 * it) * s * flick;
+  // bracket
+  poly([[x - 7 * s, y + 10 * s], [x + 7 * s, y + 10 * s], [x + 5 * s, y + 60 * s], [x - 5 * s, y + 60 * s]], rgba(SILH[0], SILH[1], SILH[2], 1));
+  ctx.globalCompositeOperation = 'lighter';
+  for (let k = 0; k < 4; k++) {
+    const n1 = noise2(F.t * 14 + k * 7.3, x * 0.02), n2 = noise2(F.t * 11 + k * 3.1, 9.9);
+    const fx = x + (n1 - 0.5) * 18 * s, fy = y - k * size * 0.28;
+    const rx = size * (0.55 - k * 0.1), ry = size * (0.9 - k * 0.12) * (0.8 + 0.4 * n2);
+    const col = k === 0 ? [255, 150, 40] : k === 1 ? [255, 190, 80] : [255, 230, 150];
+    ctx.fillStyle = rgba(col[0], col[1], col[2], 0.35 + 0.15 * k);
+    ctx.beginPath(); ctx.moveTo(fx, fy - ry * 1.4); ctx.quadraticCurveTo(fx + rx, fy - ry * 0.2, fx, fy + ry * 0.4); ctx.quadraticCurveTo(fx - rx, fy - ry * 0.2, fx, fy - ry * 1.4); ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  glow(x, y - size * 0.3, (140 + 220 * it) * s * flick, [255, 150, 50], 0.22 + 0.25 * it);
+}
+
+// ---------- creatures
+function troll(F, k, x, floorY, s, phase, emerge, look) {
+  const seed = k * 17 + 3;
+  const r = (n) => ihash(seed, n, 5);
+  const bounce = F.on * (0.75 + 0.5 * r(1));
+  const squash = 1 - 0.14 * bounce, stretch = 1 + 0.1 * bounce;
+  const bob = Math.abs(Math.sin(phase)) * 10 * s;
+  const rise = (1 - emerge) * 260 * s;
+  const y0 = floorY - bob + rise;
+  ctx.save();
+  ctx.translate(x, y0);
+  ctx.scale(s * stretch, s * squash);
+  const col = rgba(SILH[0], SILH[1], SILH[2], 1);
+  const belly = 0.9 + 0.5 * r(2), nose = 40 + 60 * r(3), ear = 0.7 + 0.8 * r(4), hump = 0.8 + 0.6 * r(5);
+  // legs (thick, short, striding)
+  const l1 = Math.sin(phase) * 34, l2 = Math.sin(phase + Math.PI) * 34;
+  poly([[-26, -110], [2, -110], [8 + l1, 0], [-22 + l1, 0]], col);
+  poly([[-2, -110], [26, -110], [30 + l2, 0], [2 + l2, 0]], col);
+  // feet
+  poly([[-30 + l1, 0], [20 + l1, 0], [26 + l1, 10], [-34 + l1, 10]], col);
+  poly([[-6 + l2, 0], [44 + l2, 0], [50 + l2, 10], [-10 + l2, 10]], col);
+  // body: a hunched mass
+  const body = blobPath(0, -190, 78 * belly, 105 * hump, seed, 18, 0.12);
+  poly(body, col);
+  // hump / shoulders
+  poly(blobPath(-20, -270, 62, 40 * hump, seed + 1, 12, 0.15), col);
+  // tail
+  poly([[-70 * belly, -150], [-120 - 30 * Math.sin(phase * 0.5), -120 + 20 * Math.sin(phase)], [-118 - 30 * Math.sin(phase * 0.5), -110 + 20 * Math.sin(phase)], [-60 * belly, -130]], col);
+  // arms (long, knuckle-dragging, swinging opposite legs)
+  const a1 = Math.sin(phase + Math.PI) * 0.5, a2 = Math.sin(phase) * 0.5;
+  for (const [ax, ay, sw, side] of [[30, -250, a1, 1], [-24, -246, a2, -1]]) {
+    ctx.save(); ctx.translate(ax, ay); ctx.rotate(sw * 0.6 + 0.35 * side * look);
+    poly([[-14, 0], [14, 0], [18, 150], [-18, 150]], col);
+    poly(blobPath(0, 160, 26, 20, seed + 3 + side, 8, 0.2), col);
+    ctx.restore();
+  }
+  // head with long nose, pointed ears, tufts
+  const hx = 34 + 18 * look, hy = -300;
+  poly(blobPath(hx, hy, 52, 46, seed + 4, 14, 0.12), col);
+  poly([[hx + 30, hy - 12], [hx + 30 + nose, hy + 4 + nose * 0.25], [hx + 26, hy + 22]], col);
+  poly([[hx - 20, hy - 30], [hx - 46 * ear - 20, hy - 70 * ear - 30], [hx + 4, hy - 46]], col);
+  poly([[hx + 10, hy - 36], [hx + 8, hy - 60 * ear - 36], [hx + 30, hy - 40]], col);
+  for (let i = 0; i < 4; i++) { const tx = hx - 30 + i * 16; poly([[tx, hy - 40], [tx + 4 + 10 * r(10 + i), hy - 70 - 30 * r(20 + i)], [tx + 12, hy - 38]], col); }
+  // lower jaw / tusk
+  poly([[hx + 6, hy + 34], [hx + 14, hy + 56], [hx + 22, hy + 30]], col);
+  ctx.restore();
+  // glowing eyes (in screen space)
+  const ex = x + (hx + 8) * s * stretch, ey = y0 + (hy - 6) * s * squash;
+  const blink = noise2(F.t * 1.3 + k * 5.7, 8) < 0.06 ? 0 : 1;
+  const ea = (0.5 + 0.4 * F.it + 0.4 * F.bon) * blink;
+  for (const dx of [-10, 12]) { glow(ex + dx * s, ey, 14 * s, [255, 200, 60], ea * 0.9); ctx.fillStyle = rgba(255, 235, 150, ea); ctx.beginPath(); ctx.ellipse(ex + dx * s, ey, 4.2 * s, 3 * s, 0, 0, TAU); ctx.fill(); }
+}
+function eyesInTheDark(F) {
+  // pairs of eyes blinking around the hall before the trolls come out
+  const vis = (1 - sstep(0.05, 0.35, F.it)) * sstep(0.0, 0.02, F.t);
+  if (vis <= 0.01) return;
+  for (let k = 0; k < 18; k++) {
+    const ox = ihash(k, 44, 1) * W, oy = 380 + ihash(k, 45, 1) * 480;
+    const per = 0.4 + ihash(k, 46, 1) * 0.6;
+    const on = noise2(F.t * per + k * 9.1, 2.2) > 0.62 - 0.25 * F.it ? 1 : 0;
+    const x = ((ox - F.cam * per * 0.4) % W + W) % W;
+    const a = vis * on * (0.5 + 0.5 * noise2(F.t * 6 + k, 1));
+    if (a <= 0.01) continue;
+    const sc = 0.5 + ihash(k, 47, 1);
+    glow(x, oy, 26 * sc, [255, 190, 60], a * 0.6);
+    ctx.fillStyle = rgba(255, 230, 140, a);
+    for (const dx of [-9, 9]) { ctx.beginPath(); ctx.ellipse(x + dx * sc, oy, 3.6 * sc, 2.4 * sc, 0, 0, TAU); ctx.fill(); }
+  }
+}
+function peer(F, x, floorY, s, phase) {
+  const col = rgba(SILH[0], SILH[1], SILH[2], 1);
+  const bob = Math.abs(Math.sin(phase)) * 12;
+  ctx.save(); ctx.translate(x, floorY - bob * s); ctx.scale(s, s);
+  const lean = 0.18 + 0.1 * F.it;
+  ctx.rotate(lean);
+  const l1 = Math.sin(phase) * 44, l2 = Math.sin(phase + Math.PI) * 44;
+  // legs
+  poly([[-8, -120], [8, -120], [14 + l1, -30], [24 + l1 * 1.2, 0], [8 + l1 * 1.2, 0], [-2 + l1, -30]], col);
+  poly([[-8, -120], [8, -120], [14 + l2, -30], [24 + l2 * 1.2, 0], [8 + l2 * 1.2, 0], [-2 + l2, -30]], col);
+  // coat flapping behind
+  const flap = 0.6 + 0.4 * Math.sin(phase * 2);
+  poly([[-12, -206], [12, -206], [8, -120], [-42 * flap - 14, -100 - 20 * Math.sin(phase)], [-50 * flap - 20, -150]], col);
+  // torso
+  poly([[-13, -220], [15, -226], [17, -120], [-11, -118]], col);
+  // arms pumping
+  const a1 = Math.sin(phase + Math.PI) * 0.9, a2 = Math.sin(phase) * 0.9;
+  for (const [ax, sw] of [[6, a1], [-6, a2]]) { ctx.save(); ctx.translate(ax, -205); ctx.rotate(sw); poly([[-7, 0], [7, 0], [9, 62], [-9, 62]], col); ctx.rotate(-1.4); poly([[-6, 55], [6, 55], [8, 100], [-8, 100]], col); ctx.restore(); }
+  // head & wide-brimmed hat
+  poly(blobPath(6, -252, 20, 22, 99, 10, 0.05), col);
+  poly([[-36, -262], [48, -268], [46, -260], [-34, -256]], col);
+  poly([[-14, -266], [30, -268], [26, -300], [-8, -298]], col);
+  ctx.restore();
+}
+function king(F, rise, roar) {
+  const cx = W / 2, base = 720;
+  const col = rgba(SILH[0], SILH[1], SILH[2], 1);
+  const s = 0.9 + 0.5 * rise;
+  ctx.save(); ctx.translate(cx, base); ctx.scale(s, s); ctx.translate(0, 120 * (1 - rise));
+  // throne
+  poly([[-170, 0], [170, 0], [150, -260], [110, -300], [90, -260], [-90, -260], [-110, -300], [-150, -260]], col);
+  poly([[-190, 0], [190, 0], [190, 30], [-190, 30]], col);
+  // body
+  poly(blobPath(0, -170, 150, 150, 500, 20, 0.06), col);
+  // shoulders & arms on armrests
+  poly([[-150, -220], [-190, -200], [-200, -60], [-150, -70]], col);
+  poly([[150, -220], [190, -200], [200, -60], [150, -70]], col);
+  // beard
+  poly([[-60, -290], [60, -290], [80, -140], [0, -80], [-80, -140]], col);
+  // head
+  const tilt = -0.08 * roar;
+  ctx.save(); ctx.translate(0, -330); ctx.rotate(tilt); ctx.scale(1, 1 + 0.12 * roar);
+  poly(blobPath(0, 0, 78, 70, 501, 16, 0.06), col);
+  // crown
+  poly([[-70, -50], [70, -50], [80, -130], [40, -90], [10, -150], [-20, -90], [-56, -140], [-80, -130]], col);
+  // mouth glow when roaring
+  if (roar > 0.02) { ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = rgba(255, 120, 30, 0.9 * roar); ctx.beginPath(); ctx.ellipse(16, 30, 30 * roar + 6, 22 * roar + 4, 0, 0, TAU); ctx.fill(); ctx.globalCompositeOperation = 'source-over'; }
+  ctx.restore();
+  ctx.restore();
+  // eyes
+  const ex = cx, ey = base + (-330 - 10) * s + 120 * (1 - rise) * s;
+  const ea = 0.35 + 0.65 * F.it + roar;
+  for (const dx of [-30, 34]) { glow(ex + dx * s, ey, 50 * s * (1 + roar), [255, 170, 40], ea * 0.7); ctx.fillStyle = rgba(255, 240, 180, Math.min(1, ea)); ctx.beginPath(); ctx.ellipse(ex + dx * s, ey, 9 * s, 6 * s, 0, 0, TAU); ctx.fill(); }
+}
+
+// ---------- foreground crystals: the spectrum, grown into rock
+function crystals(F) {
+  const B = A.BINS;
+  const it = F.it;
+  const col = mixc([255, 120, 40], [255, 225, 160], sstep(0.4, 1, it));
+  const n = 30;
+  for (let k = 0; k < n; k++) {
+    const u = k / (n - 1);
+    const b = Math.floor(u * (B - 1));
+    const v = F.spec[b];
+    const x = 20 + u * (W - 40) + (ihash(k, 9, 9) - 0.5) * 50;
+    const baseH = 50 + 110 * Math.pow(noise2(k * 0.7, 3.3), 2) + 200 * Math.pow(noise2(k * 0.13, 7.7), 3);
+    const h = baseH + v * (50 + 130 * it) + F.on * 26 * v;
+    const w = 22 + 40 * ihash(k, 10, 10);
+    const tilt = (ihash(k, 11, 11) - 0.5) * 60;
+    const tip = [x + tilt, H - h];
+    const glowA = 0.1 + 0.8 * v * (0.35 + 0.65 * it);
+    // light inside the crystal
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = rgba(col[0], col[1], col[2], glowA);
+    ctx.beginPath(); ctx.moveTo(x - w, H + 10); ctx.lineTo(tip[0], tip[1]); ctx.lineTo(x + w, H + 10); ctx.closePath(); ctx.fill();
+    glow(tip[0], tip[1] + h * 0.35, w * 3, col, glowA * 0.35);
+    ctx.globalCompositeOperation = 'source-over';
+    // two dark facets, the lit one a shade lighter, leaving glowing edges
+    ctx.fillStyle = rgba(SILH[0] + 4, SILH[1] + 2, SILH[2] + 1, 0.93);
+    ctx.beginPath(); ctx.moveTo(x - w * 0.82, H + 10); ctx.lineTo(tip[0] - 2, tip[1] + 14); ctx.lineTo(x + tilt * 0.3, H + 10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = rgba(SILH[0] + 30 + 40 * v, SILH[1] + 14 + 20 * v, SILH[2] + 6, 0.9);
+    ctx.beginPath(); ctx.moveTo(x + tilt * 0.3, H + 10); ctx.lineTo(tip[0] - 2, tip[1] + 14); ctx.lineTo(x + w * 0.62, H + 10); ctx.closePath(); ctx.fill();
+  }
+  // ground shelf
+  poly([[0, H], [0, H - 24], [W, H - 30], [W, H]], rgba(SILH[0], SILH[1], SILH[2], 1));
+}
+
+function fog(F, y, hgt, alpha, speed, seed) {
+  const g = ctx.createLinearGradient(0, y - hgt, 0, y + hgt);
+  const c = mixc(EMBER, GOLD, 0.3 * F.it);
+  g.addColorStop(0, rgba(c[0], c[1], c[2], 0));
+  g.addColorStop(0.5, rgba(c[0], c[1], c[2], alpha * (0.6 + 0.4 * noise2(F.t * 0.2 + seed, 1))));
+  g.addColorStop(1, rgba(c[0], c[1], c[2], 0));
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  for (let x = 0; x <= W; x += 40) { const yy = y + (fbm(x * 0.002 + F.cam * speed * 0.001 + seed, seed, 2) - 0.5) * hgt * 1.5; if (x === 0) ctx.moveTo(x, yy - hgt); else ctx.lineTo(x, yy - hgt); }
+  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fill();
+}
+
+function rocks(F) {
+  // debris falling after each crash
+  for (let c = 0; c < A.crash.length; c++) {
+    const t0 = A.crash[c] / A.fps;
+    const dt = F.t - t0;
+    if (dt < 0 || dt > 2.6) continue;
+    for (let j = 0; j < 22; j++) {
+      const x0 = ihash(c, j, 21) * W, vy = 60 + ihash(c, j, 22) * 200, vx = (ihash(c, j, 23) - 0.5) * 120;
+      const x = x0 + vx * dt, y = -60 + vy * dt + 900 * dt * dt;
+      if (y > H + 80) continue;
+      const s = 10 + 34 * ihash(c, j, 24);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(dt * (ihash(c, j, 25) - 0.5) * 8);
+      poly(blobPath(0, 0, s, s * 0.7, c * 31 + j, 7, 0.4), rgba(SILH[0], SILH[1], SILH[2], 1));
+      ctx.restore();
+    }
+  }
+}
+function cracks(F) {
+  const n = A.crash.length;
+  for (let c = 0; c < n; c++) {
+    const t0 = A.crash[c] / A.fps, dt = F.t - t0;
+    if (dt < 0) continue;
+    const a = clamp(1.2 - dt * 0.6, 0, 1) * 0.8;
+    if (a <= 0) continue;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = rgba(255, 200, 120, a); ctx.lineWidth = 3;
+    for (let b = 0; b < 3; b++) {
+      let x = ihash(c, b, 61) * W, y = -10;
+      ctx.beginPath(); ctx.moveTo(x, y);
+      const segs = 14;
+      const grow = clamp(dt * 6, 0, 1);
+      for (let i = 1; i <= segs * grow; i++) { x += (ihash(c, b * 100 + i, 62) - 0.5) * 120; y += 30 + ihash(c, b * 100 + i, 63) * 60; ctx.lineTo(x, y); }
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+}
+
+function titleCard(F) {
+  const font = fontReady ? 'Cinzel' : '"Bitstream Charter", "Liberation Serif", serif';
+  const tIn = sstep(0.4, 2.2, F.t), tOut = 1 - sstep(7.5, 9.5, F.t);
+  const a = tIn * tOut;
+  if (a > 0.01) {
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = rgba(243, 230, 208, a * 0.85);
+    ctx.font = `400 26px ${font}`; ctx.letterSpacing = '8px';
+    ctx.fillText(CONFIG.composer.toUpperCase(), W / 2, 300);
+    ctx.font = `700 84px ${font}`; ctx.letterSpacing = '6px';
+    ctx.shadowColor = 'rgba(255,170,60,0.6)'; ctx.shadowBlur = 40 * a;
+    ctx.fillStyle = rgba(255, 236, 200, a);
+    ctx.fillText(CONFIG.title.toUpperCase(), W / 2, 400);
+    ctx.restore();
+  }
+  // credits at the very end
+  const e = sstep(F.tEnd + 0.4, F.tEnd + 2.0, F.t);
+  if (e > 0.01) {
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `700 64px ${font}`; ctx.letterSpacing = '6px';
+    ctx.fillStyle = rgba(243, 230, 208, e * 0.9);
+    ctx.fillText(CONFIG.title.toUpperCase(), W / 2, 470);
+    ctx.font = `400 24px ${font}`; ctx.letterSpacing = '6px';
+    ctx.fillStyle = rgba(243, 230, 208, e * 0.6);
+    ctx.fillText(CONFIG.composer.toUpperCase(), W / 2, 540);
+    ctx.fillText(CONFIG.credit.toUpperCase(), W / 2, 590);
+    ctx.restore();
+  }
+}
+
+// ---------- the frame
+function draw(t) {
+  const F = frameAt(t);
+  const it = F.it;
+  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  // the end: black, two eyes, credits
+  const after = F.t - F.tEnd;
+  const fade = after > 0 ? sstep(0, 0.9, after) : 0;
+  // camera shake on bass hits, scaled by how loud things are
+  const shake = (F.bon * (6 + 26 * it) + F.crash * 30) * (1 - fade);
+  const sx = (noise2(F.t * 37, 1.1) - 0.5) * 2 * shake, sy = (noise2(F.t * 41, 5.5) - 0.5) * 2 * shake;
+  const zoom = 1 + 0.03 * it + 0.05 * F.crash;
+  ctx.translate(W / 2 + sx, H / 2 + sy); ctx.scale(zoom, zoom); ctx.translate(-W / 2, -H / 2);
+
+  drawBackdrop(F);
+  // far cave
+  caveLayer(F, 0.18, 1.3, mixc([28, 14, 10], [70, 30, 14], it * 0.6), 1, 320, 1);
+  // king on the dais
+  const rise = sstep(0.55, 0.85, it) * (1 - fade);
+  const roar = clamp(F.crash * 1.2, 0, 1);
+  king(F, rise, roar);
+  fog(F, 700, 90, 0.18 + 0.1 * it, 0.6, 2.2);
+  // mid cave and pillars with torches
+  caveLayer(F, 0.4, 7.7, mixc([18, 9, 6], [40, 18, 9], it * 0.5), 1, 260, 0.8);
+  const torchesFar = pillarLayer(F, 0.45, 11, [16, 8, 5], 1, 0.55, 520, true, 760);
+  for (const [x, y, s] of torchesFar) drawTorch(F, x, y, s * 0.8);
+  eyesInTheDark(F);
+  // trolls in three lanes, then Peer ahead of them
+  const stride = 95;
+  const lanes = [[730, 0.5, 0.4], [815, 0.72, 0.7], [FLOOR, 0.98, 1.0]];
+  const order = [];
+  for (let k = 0; k < A.maxTrolls; k++) {
+    const app = A.appear[k];
+    if (app == null || F.i < app) continue;
+    const emerge = sstep(0, 1.1, (F.i - app) / A.fps);
+    const lane = lanes[(k * 7 + 1) % 3];
+    // slots alternate left of the throne and right of it (just behind Peer), never in front of the King
+    const slot = k % 2 === 0 ? 90 + (k / 2) * 78 : 1150 + ((k - 1) / 2) * 60;
+    const baseX = slot + (ihash(k, 5, 5) - 0.5) * 50 + Math.sin(F.t * 0.5 + k) * 20;
+    order.push({ y: lane[0], k, x: baseX, s: lane[1], par: lane[2], emerge });
+  }
+  order.sort((a, b) => a.y - b.y);
+  const nearTorches = pillarLayer(F, 0.75, 23, [10, 6, 4], 1, 0.9, 640, true, 880);
+  let lastLane = -1;
+  for (const o of order) {
+    if (o.y >= FLOOR && lastLane < FLOOR) { for (const [x, y, s] of nearTorches) drawTorch(F, x, y, s); }
+    lastLane = o.y;
+    const phase = (F.cam * o.par) / stride * Math.PI + o.k * 1.7;
+    troll(F, o.k, o.x, o.y, o.s, phase, o.emerge, 0.3 + 0.2 * Math.sin(F.t + o.k));
+  }
+  if (lastLane < FLOOR) for (const [x, y, s] of nearTorches) drawTorch(F, x, y, s);
+  fog(F, 890, 70, 0.14 + 0.16 * it, 1.0, 5.1);
+  // Peer Gynt, always just ahead
+  const peerX = 1560 + 40 * Math.sin(F.t * 0.7) - 120 * F.crash;
+  peer(F, peerX, FLOOR + 6, 1.05, (F.cam / 70) * Math.PI);
+  rocks(F);
+  cracks(F);
+  crystals(F);
+  // flash on crashes
+  if (F.crash > 0.02) { ctx.fillStyle = rgba(255, 220, 170, 0.75 * Math.pow(F.crash, 2.2)); ctx.fillRect(-100, -100, W + 200, H + 200); }
+  // fade to black with the King's eyes lingering
+  if (fade > 0) {
+    ctx.fillStyle = rgba(0, 0, 0, fade); ctx.fillRect(-100, -100, W + 200, H + 200);
+    const linger = sstep(0.2, 1.4, after) * (1 - sstep(4.5, 6.5, after));
+    for (const dx of [-40, 40]) { glow(W / 2 + dx, 400, 90, [255, 170, 40], 0.6 * linger); ctx.fillStyle = rgba(255, 240, 190, linger); ctx.beginPath(); ctx.ellipse(W / 2 + dx, 400, 12, 8, 0, 0, TAU); ctx.fill(); }
+  }
+  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  // vignette & grain
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.95);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = 0.16;
+  const gx = Math.floor(ihash(F.i, 1, 1) * 256), gy = Math.floor(ihash(F.i, 2, 2) * 256);
+  const pat = ctx.createPattern(grain, 'repeat');
+  ctx.save(); ctx.translate(-gx, -gy); ctx.scale(2, 2); ctx.fillStyle = pat; ctx.fillRect(0, 0, W / 2 + 256, H / 2 + 256); ctx.restore();
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  titleCard(F);
+  // opening fade-in
+  if (F.t < 1.2) { ctx.fillStyle = rgba(0, 0, 0, 1 - sstep(0, 1.2, F.t)); ctx.fillRect(0, 0, W, H); }
+}
+
+// ============================================================ loading & playback
+const overlay = document.getElementById('overlay');
+const msg = document.getElementById('msg');
+const status = document.getElementById('status');
+let audioEl = null;
+let raf = 0;
+let currentUrl = null;
+
+async function loadBuffer(arrayBuffer) {
+  const off = new OfflineAudioContext(1, 44100, 44100);
+  const buf = await off.decodeAudioData(arrayBuffer.slice(0));
+  A = analyse(buf);
+  return A;
+}
+async function loadUrl(url) {
+  msg.textContent = 'Listening to the music…';
+  let ab;
+  if (url.startsWith('data:')) {
+    // embedded audio: decode the base64 ourselves so no network request is needed
+    const bin = atob(url.slice(url.indexOf(',') + 1));
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    ab = bytes.buffer;
+    await loadBuffer(ab);
+    currentUrl = URL.createObjectURL(new Blob([bytes], { type: url.slice(5, url.indexOf(';')) }));
+  } else {
+    const res = await fetch(url);
+    ab = await res.arrayBuffer();
+    await loadBuffer(ab);
+    currentUrl = url;
+  }
+  msg.textContent = `${Math.round(A.duration)}s analysed · ${A.crash.length} crashes found`;
+}
+function startPlayback() {
+  if (!A) return;
+  if (audioEl) { audioEl.pause(); }
+  audioEl = new Audio(currentUrl);
+  audioEl.play();
+  overlay.classList.add('hidden');
+  cancelAnimationFrame(raf);
+  const loop = () => {
+    raf = requestAnimationFrame(loop);
+    const t = audioEl.currentTime;
+    draw(t);
+    document.getElementById('bar').style.width = `${(t / A.duration) * 100}%`;
+    if (audioEl.ended && t >= A.duration - 0.05) { overlay.classList.remove('hidden'); cancelAnimationFrame(raf); }
+  };
+  loop();
+}
+document.getElementById('play').addEventListener('click', async () => {
+  if (!A) await loadUrl(CONFIG.audio);
+  startPlayback();
+});
+document.getElementById('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  msg.textContent = 'Listening to the music…';
+  const ab = await f.arrayBuffer();
+  await loadBuffer(ab);
+  if (currentUrl && currentUrl.startsWith('blob:')) URL.revokeObjectURL(currentUrl);
+  currentUrl = URL.createObjectURL(f);
+  msg.textContent = `${f.name}: ${Math.round(A.duration)}s analysed`;
+  startPlayback();
+});
+document.fonts && document.fonts.load('700 84px Cinzel').then(() => { fontReady = document.fonts.check('700 84px Cinzel'); }).catch(() => {});
+window.addEventListener('keydown', (e) => { if (e.code === 'Space' && audioEl) { e.preventDefault(); audioEl.paused ? audioEl.play() : audioEl.pause(); } });
+// draw a still frame before anything plays, so the page isn't black
+(async () => {
+  try { await loadUrl(CONFIG.audio); draw(A.peakFrame / A.fps * 0.62); } catch (e) { msg.textContent = 'Drop in an audio file to begin.'; }
+})();
+
+// ============================================================ offline render API (used by render.mjs)
+window.MV = {
+  async load(url) { await loadUrl(url); return { frames: A.frames, duration: A.duration, crashes: A.crash.length, end: A.endFrame / A.fps }; },
+  renderFrame(i, fps) { document.body.classList.add('render'); draw(i / fps); return true; },
+  jpeg(q) { return canvas.toDataURL('image/jpeg', q); },
+  analysis() { return { duration: A.duration, crashes: A.crash.map((c) => c / A.fps), end: A.endFrame / A.fps, peak: A.peakFrame / A.fps, intensity: Array.from(A.intensity).filter((_, i) => i % 60 === 0).map((v) => +v.toFixed(2)) }; },
+};
+</script>
+</body>
+</html>
