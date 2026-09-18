@@ -28,7 +28,7 @@ page.on('pageerror', (e) => console.log('PAGEERROR', e.message));
 await page.goto('http://localhost:4183/index.html?render=1', { waitUntil: 'load' });
 await page.evaluate(() => document.fonts.ready);
 if (await page.evaluate(() => window.MV.fonts ? window.MV.fonts() : true) === false) console.log('WARNING: web fonts did not load');
-const info = await page.evaluate(() => window.MV.load('audio/sorcerer.mp3'));
+const info = await page.evaluate(() => window.MV.load('audio/apprentice-finale.mp3'));
 console.log('analysed', info);
 console.log('analysis', JSON.stringify(await page.evaluate(() => window.MV.analysis())));
 await page.evaluate(() => document.body.classList.add('render'));
@@ -43,7 +43,7 @@ async function grab(i, fps, file, type = 'jpeg') {
 if (mode === 'contact') {
   const stills = path.join(out, 'stills');
   fs.mkdirSync(stills, { recursive: true });
-  const times = (process.argv[3] ? process.argv[3].split(',').map(Number) : [1.5, 5, 20, 45, 70, 95, 108, 118, 123.4, 127, 131]);
+  const times = (process.argv[3] ? process.argv[3].split(',').map(Number) : [4, 14, 24, 33, 50, 66, 80, 95, 112, 128, 141, 150, 159, 170, 185, 193, 199, 204]);
   for (const t of times) { await grab(Math.round(t * 60), 60, path.join(stills, `t${String(t).replace('.', '_')}.png`), 'png'); console.log('still', t); }
 } else {
   const frames = path.join(out, 'frames');
@@ -58,7 +58,7 @@ if (mode === 'contact') {
   let ffmpeg = process.env.FFMPEG;
   if (!ffmpeg) { const r = spawnSync('python3', ['-c', 'import imageio_ffmpeg;print(imageio_ffmpeg.get_ffmpeg_exe())'], { encoding: 'utf8' }); ffmpeg = r.stdout.trim() || 'ffmpeg'; }
   const mp4 = path.join(out, 'doodles.mp4');
-  const r = spawnSync(ffmpeg, ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(frames, 'f%05d.jpg'), '-i', (fs.existsSync(path.join(root, 'audio', 'sorcerer.wav')) ? path.join(root, 'audio', 'sorcerer.wav') : path.join(root, 'audio', 'sorcerer.mp3')), '-c:v', 'libx264', '-preset', 'medium', '-crf', String(CRF), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', mp4], { encoding: 'utf8' });
+  const r = spawnSync(ffmpeg, ['-y', '-loglevel', 'error', '-framerate', String(FPS), '-i', path.join(frames, 'f%05d.jpg'), '-i', (fs.existsSync(path.join(root, 'audio', 'apprentice-finale.wav')) ? path.join(root, 'audio', 'apprentice-finale.wav') : path.join(root, 'audio', 'apprentice-finale.mp3')), '-c:v', 'libx264', '-preset', 'medium', '-crf', String(CRF), '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', mp4], { encoding: 'utf8' });
   console.log(r.status === 0 ? `wrote ${mp4}` : `ffmpeg failed: ${r.stderr}`);
 }
 await browser.close();

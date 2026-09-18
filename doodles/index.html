@@ -35,7 +35,7 @@
   <div class="overlay" id="overlay">
     <div class="card">
       <h1>Doodles for the Apprentice</h1>
-      <p>Four photographs, one spell. Every doodle is drawn in JavaScript, stroke by stroke, on the notes of Dukas's Sorcerer's Apprentice.</p>
+      <p>Seventeen photographs, one spell. Every doodle is drawn in JavaScript, stroke by stroke, on the notes of the finale of Dukas's <em>Sorcerer's Apprentice</em>: the broom halves get up, multiply, flood the desk, and the Master comes home.</p>
       <button id="play">Play</button>
       <label>or drop in any audio file <input id="file" type="file" accept="audio/*" /></label>
       <p id="msg"></p>
@@ -45,15 +45,32 @@
 <script>
 // ============================================================ config
 const CONFIG = {
-  audio: 'audio/sorcerer.mp3',
+  audio: 'audio/apprentice-finale.mp3',
   title: "The Sorcerer's Apprentice",
   composer: 'Paul Dukas · 1897',
   credit: 'every doodle drawn in code',
-  cues: { balloon: 8.0, choir: 40.2, beach: 56.0, launch: 88.4, master: 104.0, snap: 128.55, end: 130.2 },
-  cueDuration: 134.0,
+  // Cues are seconds into audio/apprentice-finale.mp3: the finale of the 1941 Mitropoulos / Minneapolis
+  // Symphony recording, cut at 379.6 s → 582.0 s of the archive.org transfer, plus 4 s of silence for
+  // the end card. They sit on that transfer's own boundaries, read off an RMS / spectral-flux timeline
+  // (python analysis, 0.25 s steps; see README):
+  //   theme    0.9   first pp note of the returning broom theme (bassoons)
+  //   rise     8.9   the theme's first mf entry: the two halves get up
+  //   multiply 25.9  tutti hit at −8 dB: the multiplication begins
+  //   overflow 38.9  the orchestra stays loud from here: the well overflows
+  //   flood    68.4  a plateau (−15 dB) inside the flood: the ocean scene
+  //   island  101.9  a one-beat breath (−20 dB) before the last surge
+  //   shriek  136.4  the piccolo / cymbal peak (highest 2.5–9 kHz energy of the piece)
+  //   master  147.0  the flood stops dead (−62 dB): the Master is home
+  //   brow1 / brow2  the two soft chords in the silence (153.65 s, 157.4 s)
+  //   drain   161.8  the slow coda begins: the water goes back
+  //   hush    187.4  the coda fades to fragments
+  //   thwack  198.65 the final chord (−11 dB peak) · end 200.4 silence
+  cues: { theme: 0.9, rise: 8.9, multiply: 25.9, overflow: 38.9, flood: 68.4, island: 101.9, shriek: 136.4, master: 147.0, brow1: 153.65, brow2: 157.4, drain: 161.8, hush: 187.4, thwack: 198.65, end: 200.4 },
+  cueDuration: 206.4,
 };
-const PHOTO_SRC = { coffee: 'photos/coffee.jpg', coins: 'photos/coins.jpg', rocket: 'photos/rocket.jpg', chelsea: 'photos/chelsea.jpg' };
-const PHOTO_SIZE = { coffee: [600, 400], coins: [384, 303], rocket: [640, 427], chelsea: [451, 300] };
+// photos live in photos/ (see photos/SOURCES.md); doodles are drawn in each photo's own pixel space, listed here
+const PHOTO_SIZE = { pencil: [600, 900], toothbrush: [600, 750], scissors: [600, 450], teapot: [600, 400], mug: [600, 600], clothespin: [600, 400], tape: [600, 450], croissant: [600, 600], sneaker: [600, 480], banana: [600, 400], lemons: [600, 400], bulb: [600, 900], key: [600, 788], broccoli: [600, 400], umbrella: [600, 400], whisk: [600, 400], fork: [600, 400] };
+const PHOTO_SRC = {}; for (const k in PHOTO_SIZE) PHOTO_SRC[k] = `photos/${k}.jpg`;
 const W = 1920, H = 1080, TAU = Math.PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -139,8 +156,9 @@ function pencil(pts, col, a = 0.55, seed = 0) {
   ctx.stroke(); ctx.restore();
 }
 function lettering(txt, x, y, size, col, o = {}) {
+  if (!txt) return;
   const font = fontReady ? (o.font || 'Gochi Hand') : 'cursive';
-  ctx.save(); ctx.translate(x, y); ctx.rotate(o.rot || 0); ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle'; ctx.font = `${size}px "${font}"`; ctx.globalAlpha = o.a == null ? 1 : o.a;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(o.rot || 0); ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle'; ctx.font = `${size}px "${font}"`; ctx.globalAlpha *= o.a == null ? 1 : o.a;
   if (o.outline) { ctx.lineWidth = size * 0.16; ctx.strokeStyle = o.outline; ctx.lineJoin = 'round'; ctx.strokeText(txt, 0, 0); }
   ctx.fillStyle = rgba(col, 1); ctx.fillText(txt, 0, 0); ctx.restore();
 }
@@ -149,33 +167,53 @@ const circ = (cx, cy, r, n = 20, ry) => { const o = []; for (let i = 0; i <= n; 
 const arc = (cx, cy, r, a0, a1, n = 10, ry) => { const o = []; for (let i = 0; i <= n; i++) { const a = lerp(a0, a1, i / n); o.push([cx + Math.cos(a) * r, cy + Math.sin(a) * (ry || r)]); } return o; };
 const scribble = (cx, cy, r, seed, n = 18) => { const o = []; for (let i = 0; i <= n; i++) { const a = (i / n) * TAU; const rr = r * (0.8 + 0.3 * noise2(Math.cos(a) * 2 + seed, Math.sin(a) * 2)); o.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr * 0.7]); } return o; };
 const bez = (p0, p1, p2, n = 10) => { const o = []; for (let i = 0; i <= n; i++) { const t = i / n; o.push([(1 - t) * (1 - t) * p0[0] + 2 * (1 - t) * t * p1[0] + t * t * p2[0], (1 - t) * (1 - t) * p0[1] + 2 * (1 - t) * t * p1[1] + t * t * p2[1]]); } return o; };
+function birdDoodle(cx, cy, s) { const out = []; out.push(S(circ(cx, cy, 14 * s, 12, 12 * s), { w: 2.6 })); out.push(Fill(circ(cx, cy, 14 * s, 12, 12 * s), PENCIL.yellow, 0.7)); out.push(S([[cx + 12 * s, cy], [cx + 22 * s, cy + 3 * s], [cx + 12 * s, cy + 5 * s]], { w: 2.4, col: PENCIL.orange })); out.push(S([[cx + 4 * s, cy - 3 * s], [cx + 5 * s, cy - 2 * s]], { w: 4 })); out.push(S([[cx - 14 * s, cy + 2 * s], [cx - 30 * s, cy - 8 * s], [cx - 24 * s, cy + 8 * s]], { w: 2.4 })); out.push(S([[cx - 4 * s, cy + 12 * s], [cx - 6 * s, cy + 22 * s]], { w: 2.2, col: PENCIL.orange })); out.push(S([[cx + 4 * s, cy + 12 * s], [cx + 6 * s, cy + 22 * s]], { w: 2.2, col: PENCIL.orange })); return out; }
+function cloudDoodle(cx, cy, s) { const pts = []; for (let i = 0; i <= 28; i++) { const a = (i / 28) * TAU; const bump = 1 + 0.25 * Math.abs(Math.sin(a * 3)); pts.push([cx + Math.cos(a) * 60 * s * bump, cy + Math.sin(a) * 30 * s * bump]); } return [Fill(pts, PENCIL.white, 0.8), S(pts, { w: 2.6, closed: true })]; }
 
 // ============================================================ photo cards
 function card(name, rect, rot = 0, o = {}) {
   const img = IMG[name]; if (!img) return;
-  const [x, y, w, h] = rect;
+  const [x, y, w, h] = rect; const ga = ctx.globalAlpha;
   ctx.save(); ctx.translate(x + w / 2, y + h / 2); ctx.rotate(rot); ctx.translate(-w / 2, -h / 2);
   ctx.shadowColor = 'rgba(40,30,20,0.35)'; ctx.shadowBlur = 40; ctx.shadowOffsetY = 18;
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
   ctx.shadowColor = 'transparent';
-  ctx.globalAlpha = o.a == null ? 1 : o.a; ctx.drawImage(img, 0, 0, w, h); ctx.globalAlpha = 1;
-  if (o.frame !== false) { ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 10; ctx.strokeRect(5, 5, w - 10, h - 10); }
-  // tape
-  ctx.fillStyle = 'rgba(255,240,200,0.65)';
-  for (const [tx, ty, ta] of [[0, 0, -0.7], [w, 0, 0.7]]) { ctx.save(); ctx.translate(tx, ty); ctx.rotate(ta); ctx.fillRect(-46, -14, 92, 28); ctx.restore(); }
+  ctx.globalAlpha = ga * (o.a == null ? 1 : o.a); ctx.drawImage(img, 0, 0, w, h); ctx.globalAlpha = ga;
+  if (o.frame !== false) { ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = Math.max(6, w * 0.02); ctx.strokeRect(ctx.lineWidth / 2, ctx.lineWidth / 2, w - ctx.lineWidth, h - ctx.lineWidth); }
+  if (o.tape !== false) { ctx.fillStyle = 'rgba(255,240,200,0.65)'; const tw = clamp(w * 0.3, 40, 92), th = tw * 0.3; for (const [tx, ty, ta] of [[0, 0, -0.7], [w, 0, 0.7]]) { ctx.save(); ctx.translate(tx, ty); ctx.rotate(ta); ctx.fillRect(-tw / 2, -th / 2, tw, th); ctx.restore(); } }
   ctx.restore();
 }
 // a mapper from photo pixel space to the screen, given the card rect
 const mapper = (name, rect) => { const [pw, ph] = PHOTO_SIZE[name]; const sx = rect[2] / pw, sy = rect[3] / ph; return (x, y) => [rect[0] + x * sx, rect[1] + y * sy]; };
 const mapPts = (M, pts) => pts.map((p) => M(p[0], p[1]));
+// a card with its doodle, rotated together about the card's centre
+function placed(name, rect, rot, strokes, prog, tx, o = {}) {
+  const cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot || 0); ctx.translate(-cx, -cy);
+  card(name, rect, 0, o);
+  if (strokes) drawDoodle(strokes, prog == null ? total(strokes) : prog, mapper(name, rect), tx || {});
+  ctx.restore();
+}
+// one half of a photo card, cut along a zigzag, pushed apart by gap
+function halfCard(name, rect, rot, half, gap, jitter = 0) {
+  const [x, y, w, h] = rect, cx = x + w / 2, cy = y + h / 2, cut = y + h * 0.5;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(rot + (half ? -0.025 : 0.025)); ctx.translate(-cx, -cy); ctx.translate(jitter, half ? gap : -gap);
+  const zig = []; for (let i = 0; i <= 10; i++) zig.push([x - 30 + ((w + 60) * i) / 10, cut + (i % 2 ? 7 : -7)]);
+  ctx.beginPath();
+  if (half === 0) { ctx.moveTo(x - 60, y - 80); ctx.lineTo(x + w + 60, y - 80); for (const p of zig.slice().reverse()) ctx.lineTo(p[0], p[1]); }
+  else { for (const p of zig) ctx.lineTo(p[0], p[1]); ctx.lineTo(x + w + 60, y + h + 80); ctx.lineTo(x - 60, y + h + 80); }
+  ctx.closePath(); ctx.clip(); card(name, rect, 0); ctx.restore();
+}
 
 // ============================================================ the stroke-reveal engine
 // A doodle is an ordered list of strokes in photo pixel space. Progress (in points)
 // advances with the notes, so the drawing happens on the music.
 function S(pts, o = {}) { return { kind: 'ink', pts, w: o.w || 3, col: o.col || INK, closed: !!o.closed, n: pts.length, grp: o.grp || 0 }; }
-function Fill(pts, col, a = 0.55) { return { kind: 'fill', pts, col, a, n: 3, grp: 0 }; }
+function Fill(pts, col, a = 0.55, grp = 0) { return { kind: 'fill', pts, col, a, n: 3, grp }; }
 function T(txt, x, y, size, col, o = {}) { return { kind: 'text', txt, x, y, size, col: col || INK, o, n: 4, grp: o.grp || 0 }; }
 function total(strokes) { let n = 0; for (const s of strokes) n += s.n; return n; }
+const withGrp = (strokes, grp) => strokes.map((s) => ({ ...s, grp }));
+// groupTx[grp] = { x, y, rot, scale, pivot: [photoX, photoY], a } animates the strokes of a group once drawn
 function drawDoodle(strokes, progress, M, groupTx = {}) {
   let acc = 0, pen = null;
   for (let k = 0; k < strokes.length; k++) {
@@ -184,7 +222,11 @@ function drawDoodle(strokes, progress, M, groupTx = {}) {
     const frac = clamp((progress - acc) / s.n, 0, 1);
     acc += s.n;
     const tx = groupTx[s.grp] || null;
-    if (tx) { ctx.save(); ctx.translate(tx.x || 0, tx.y || 0); if (tx.rot) { ctx.translate(tx.px, tx.py); ctx.rotate(tx.rot); ctx.translate(-tx.px, -tx.py); } }
+    if (tx) {
+      if (tx.a != null && tx.a <= 0) continue;
+      ctx.save(); if (tx.a != null) ctx.globalAlpha *= tx.a; ctx.translate(tx.x || 0, tx.y || 0);
+      if (tx.rot || tx.scale) { const [px, py] = tx.pivot ? M(tx.pivot[0], tx.pivot[1]) : [tx.px || 0, tx.py || 0]; ctx.translate(px, py); if (tx.rot) ctx.rotate(tx.rot); if (tx.scale) ctx.scale(tx.scale, tx.scale); ctx.translate(-px, -py); }
+    }
     if (s.kind === 'ink') {
       const pts = mapPts(M, s.pts); const m = Math.max(2, Math.ceil(pts.length * frac));
       const part = frac < 1 ? pts.slice(0, m) : pts;
@@ -203,277 +245,439 @@ function reveal(F, start, deadline, tot) {
   const byNotes = notes / expected, byTime = (F.t - start) / (deadline - start);
   return tot * clamp(Math.max(byNotes, byTime), 0, 1);
 }
+// the moment the k-th accent after t0 lands (deterministic, from the analysis)
+function accentBirth(k, t0) { const n0 = accCountAt(t0); for (let i = Math.floor(t0 * A.fps); i < A.frames; i++) if (A.accCount[i] - n0 > k) return i / A.fps; return 1e9; }
 
-// ============================================================ small doodle creatures (photo-space helpers)
-function mouseDoodle(cx, cy, s, o = {}) {
-  // returns strokes: a little mouse peeking, facing right
-  const out = [];
-  out.push(S(circ(cx, cy, 22 * s, 16), { w: 3 })); out.push(Fill(circ(cx, cy, 22 * s, 16), [235, 232, 240], 0.7));
-  for (const side of [-1, 1]) { out.push(S(circ(cx + side * 18 * s, cy - 20 * s, 10 * s, 10), { w: 2.6 })); out.push(Fill(circ(cx + side * 18 * s, cy - 20 * s, 10 * s, 10), PENCIL.pink, 0.6)); }
-  out.push(S([[cx - 8 * s, cy - 4 * s], [cx - 7 * s, cy - 3 * s]], { w: 5 })); out.push(S([[cx + 8 * s, cy - 4 * s], [cx + 9 * s, cy - 3 * s]], { w: 5 }));
-  out.push(S([[cx + 14 * s, cy + 6 * s], [cx + 22 * s, cy + 5 * s]], { w: 3, col: PENCIL.pink }));
-  out.push(S([[cx - 4 * s, cy + 12 * s], [cx, cy + 15 * s], [cx + 5 * s, cy + 12 * s]], { w: 2.4 }));
-  if (o.hat) { out.push(S([[cx - 30 * s, cy - 24 * s], [cx + 30 * s, cy - 24 * s], [cx + 4 * s, cy - 80 * s], [cx - 30 * s, cy - 24 * s]], { w: 3 })); out.push(Fill([[cx - 30 * s, cy - 24 * s], [cx + 30 * s, cy - 24 * s], [cx + 4 * s, cy - 80 * s]], PENCIL.purple, 0.7)); }
-  if (o.body) { out.push(S([[cx - 16 * s, cy + 20 * s], [cx - 20 * s, cy + 60 * s], [cx + 20 * s, cy + 60 * s], [cx + 16 * s, cy + 20 * s]], { w: 3 })); out.push(Fill([[cx - 16 * s, cy + 20 * s], [cx - 20 * s, cy + 60 * s], [cx + 20 * s, cy + 60 * s], [cx + 16 * s, cy + 20 * s]], [235, 232, 240], 0.6)); out.push(S([[cx - 20 * s, cy + 40 * s], [cx - 44 * s, cy + 30 * s]], { w: 3 })); out.push(S([[cx + 20 * s, cy + 40 * s], [cx + 44 * s, cy + 24 * s]], { w: 3 })); out.push(S([[cx - 8 * s, cy + 60 * s], [cx - 10 * s, cy + 80 * s]], { w: 3 })); out.push(S([[cx + 8 * s, cy + 60 * s], [cx + 10 * s, cy + 80 * s]], { w: 3 })); }
-  return out;
-}
-function frogDoodle(cx, cy, s) { const out = []; out.push(S(circ(cx, cy, 24 * s, 16, 18 * s), { w: 3 })); out.push(Fill(circ(cx, cy, 24 * s, 16, 18 * s), PENCIL.green, 0.7)); for (const side of [-1, 1]) { out.push(S(circ(cx + side * 12 * s, cy - 16 * s, 8 * s, 10), { w: 2.4 })); out.push(S([[cx + side * 12 * s, cy - 16 * s], [cx + side * 13 * s, cy - 15 * s]], { w: 5 })); } out.push(S(arc(cx, cy + 2 * s, 12 * s, 0.2, Math.PI - 0.2, 8), { w: 2.4 })); out.push(S([[cx - 20 * s, cy + 14 * s], [cx - 34 * s, cy + 26 * s], [cx - 40 * s, cy + 24 * s]], { w: 3 })); out.push(S([[cx + 20 * s, cy + 14 * s], [cx + 34 * s, cy + 26 * s], [cx + 40 * s, cy + 24 * s]], { w: 3 })); return out; }
-function birdDoodle(cx, cy, s) { const out = []; out.push(S(circ(cx, cy, 14 * s, 12, 12 * s), { w: 2.6 })); out.push(Fill(circ(cx, cy, 14 * s, 12, 12 * s), PENCIL.yellow, 0.7)); out.push(S([[cx + 12 * s, cy], [cx + 22 * s, cy + 3 * s], [cx + 12 * s, cy + 5 * s]], { w: 2.4, col: PENCIL.orange })); out.push(S([[cx + 4 * s, cy - 3 * s], [cx + 5 * s, cy - 2 * s]], { w: 4 })); out.push(S([[cx - 14 * s, cy + 2 * s], [cx - 30 * s, cy - 8 * s], [cx - 24 * s, cy + 8 * s]], { w: 2.4 })); out.push(S([[cx - 4 * s, cy + 12 * s], [cx - 6 * s, cy + 22 * s]], { w: 2.2, col: PENCIL.orange })); out.push(S([[cx + 4 * s, cy + 12 * s], [cx + 6 * s, cy + 22 * s]], { w: 2.2, col: PENCIL.orange })); return out; }
-function cloudDoodle(cx, cy, s) { const pts = []; for (let i = 0; i <= 28; i++) { const a = (i / 28) * TAU; const bump = 1 + 0.25 * Math.abs(Math.sin(a * 3)); pts.push([cx + Math.cos(a) * 60 * s * bump, cy + Math.sin(a) * 30 * s * bump]); } return [Fill(pts, PENCIL.white, 0.8), S(pts, { w: 2.6, closed: true })]; }
+// ============================================================ small doodle parts (photo-space helpers)
+function eye(x, y, r, o = {}) { const g = o.grp || 0; return [Fill(circ(x, y, r, 12), PENCIL.white, 0.95, g), S(circ(x, y, r, 12), { w: o.w || 2.6, closed: true, grp: g }), Fill(circ(x + r * 0.25, y + r * 0.1, r * 0.42, 8), INK, 0.95, g)]; }
+function star(x, y, s, col) { const pts = []; for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + (i / 10) * TAU, r = i % 2 ? s * 0.45 : s; pts.push([x + Math.cos(a) * r, y + Math.sin(a) * r]); } return [Fill(pts, col, 0.8), S(pts, { w: 2, col, closed: true })]; }
+function bucket(x, y, s, grp = 0) { const w = 36 * s, h = 40 * s; const body = [[x - w / 2, y], [x + w / 2, y], [x + w * 0.38, y + h], [x - w * 0.38, y + h]]; return [Fill(body, PENCIL.grey, 0.55, grp), S(body, { w: 2.6, closed: true, grp }), Fill([[x - w / 2 + 4, y + 2], [x + w / 2 - 4, y + 2], [x + w / 2 - 6, y + 10], [x - w / 2 + 6, y + 10]], PENCIL.blue, 0.8, grp), S(arc(x, y, w / 2, Math.PI, TAU, 8, w * 0.5), { w: 2.2, grp })]; }
 
-// ============================================================ scene doodles (photo pixel coordinates)
+// ============================================================ the seventeen doodles (photo pixel coordinates)
 let CACHE = {};
-function doodleBalloon() {
-  if (CACHE.balloon) return CACHE.balloon;
-  const out = [];
-  const bx = 290, by = -250, rx = 165, ry = 190;
-  // ropes from the rim to the balloon
-  for (const [x, y] of [[195, 122], [290, 95], [385, 122]]) out.push(S([[x, y], [lerp(x, bx, 0.5), lerp(y, by + ry - 20, 0.5)], [bx + (x - 290) * 0.35, by + ry - 20]], { w: 3, grp: 1 }));
-  // the envelope, with coloured stripes
-  const env = circ(bx, by, rx, 40, ry);
-  const meridian = (u) => { const pts = []; for (let i = 0; i <= 16; i++) { const a = -Math.PI / 2 + (i / 16) * Math.PI; const yy = by + Math.sin(a) * ry; const half = rx * Math.cos(a); pts.push([bx + half * u, yy]); } return pts; };
-  const cols = [PENCIL.pink, PENCIL.yellow, PENCIL.blue, PENCIL.pink, PENCIL.yellow, PENCIL.blue];
-  for (let k = 0; k < 6; k++) { const a = meridian(-1 + k / 3), b = meridian(-1 + (k + 1) / 3); out.push({ kind: 'fill', pts: a.concat(b.slice().reverse()), col: cols[k], a: 0.6, n: 3, grp: 1 }); }
-  out.push(S(env, { w: 3.4, closed: true, grp: 1 }));
-  for (let k = 1; k < 6; k++) out.push(S(meridian(-1 + k / 3), { w: 2.4, grp: 1 }));
-  // the burner flame above the cup
-  out.push(S([[270, 70], [290, 30], [310, 70]], { w: 2.6, col: PENCIL.orange, grp: 1 })); out.push(Fill([[272, 72], [290, 34], [308, 72]], PENCIL.orange, 0.8));
-  // a rope belt around the cup: the basket
-  out.push(S(arc(290, 205, 118, 0.15, Math.PI - 0.15, 12, 30), { w: 3 }));
-  out.push(S(arc(290, 205, 118, Math.PI + 0.15, TAU - 0.15, 12, 30), { w: 3, col: [43, 42, 51] }));
-  // the spoon becomes the anchor
-  out.push(S(bez([382, 130], [372, 200], [362, 250], 8), { w: 3 }));
-  out.push(T('anchor', 470, 300, 30, PENCIL.brown, { font: 'Patrick Hand', rot: 0.1 }));
-  out.push(S([[420, 290], [400, 272]], { w: 2.2, col: PENCIL.brown }));
-  // the pilot peeking over the rim
-  out.push(...mouseDoodle(250, 96, 1.05, { hat: true }));
-  out.push(S([[282, 100], [300, 78], [312, 84]], { w: 3 }));
-  out.push(T('up, up!', 520, -60, 40, INK, { rot: -0.15 }));
-  // clouds and birds on the paper around the balloon
-  out.push(...cloudDoodle(-90, -180, 1.1)); out.push(...cloudDoodle(620, -280, 0.9)); out.push(...cloudDoodle(680, -20, 0.8));
-  out.push(...birdDoodle(560, -400, 1)); out.push(...birdDoodle(-40, -360, 0.8));
-  out.push(S([[-60, -430], [-40, -445], [-20, -430]], { w: 2.4 })); out.push(S([[60, -410], [80, -425], [100, -410]], { w: 2.4 }));
-  CACHE.balloon = out; return out;
+// the pencil is the Apprentice: its sharpened tip is already a wizard's hat
+function doodleApprentice() {
+  if (CACHE.apprentice) return CACHE.apprentice; const out = [];
+  const brimA = bez([290, 578], [388, 612], [486, 578], 10), brimB = bez([486, 578], [388, 548], [290, 578], 10);
+  out.push(Fill(brimA.concat(brimB), PENCIL.purple, 0.6)); out.push(S(brimA, { w: 4 })); out.push(S(brimB, { w: 3 }));
+  out.push(...star(365, 480, 9, PENCIL.yellow)); out.push(...star(408, 530, 7, PENCIL.yellow)); out.push(...star(392, 448, 6, PENCIL.pink));
+  out.push(...eye(372, 624, 9)); out.push(...eye(406, 624, 9));
+  out.push(S([[360, 606], [380, 602]], { w: 3 })); out.push(S([[398, 602], [418, 606]], { w: 3 }));
+  out.push(S(bez([374, 662], [388, 650], [402, 662], 6), { w: 3 }));
+  out.push(Fill(circ(356, 652, 8, 8), PENCIL.pink, 0.5)); out.push(Fill(circ(422, 652, 8, 8), PENCIL.pink, 0.5));
+  out.push(S([[350, 690], [388, 712], [426, 690]], { w: 3, col: PENCIL.purple }));
+  // left arm with the wand (group 1), right arm raised (group 2)
+  out.push(S([[352, 720], [300, 770], [272, 748]], { w: 3.4, grp: 1 })); out.push(S([[272, 748], [238, 700]], { w: 4, col: PENCIL.brown, grp: 1 })); out.push(...withGrp(star(232, 690, 10, PENCIL.yellow), 1));
+  out.push(S([[424, 720], [478, 765], [492, 740]], { w: 3.4, grp: 2 })); out.push(S(circ(494, 736, 9, 8), { w: 2.6, grp: 2 }));
+  out.push(S(circ(368, 884, 16, 10, 8), { w: 3 })); out.push(S(circ(410, 884, 16, 10, 8), { w: 3 }));
+  out.push(T('oops.', 160, 560, 44, INK, { rot: -0.12 }));
+  CACHE.apprentice = out; return out;
 }
-const COINS = [[45, 45, 22], [100, 45, 22], [155, 45, 22], [215, 45, 24], [275, 45, 20], [340, 45, 34], [50, 120, 22], [105, 120, 20], [155, 120, 20], [210, 120, 22], [270, 120, 28], [345, 120, 24], [45, 195, 20], [105, 195, 24], [160, 195, 20], [215, 195, 22], [275, 195, 24], [345, 195, 30], [45, 265, 24], [110, 265, 20], [165, 265, 22], [240, 265, 22], [300, 265, 24], [355, 265, 20]];
-function doodleChoir() {
-  if (CACHE.choir) return CACHE.choir;
-  const out = [];
-  COINS.forEach(([x, y, r], k) => {
-    const s = r / 24;
-    // a singing mouth, a bow tie and two arms
-    out.push(S(circ(x, y + 10 * s, 5 * s, 8, 6 * s), { w: 2.4, closed: true, col: PENCIL.red, grp: 10 + k }));
-    out.push(S([[x - 10 * s, y + r + 2], [x - 2 * s, y + r + 6], [x - 10 * s, y + r + 12], [x - 10 * s, y + r + 2]], { w: 2.2, col: k % 3 ? PENCIL.blue : PENCIL.red, grp: 10 + k }));
-    out.push(S([[x + 10 * s, y + r + 2], [x + 2 * s, y + r + 6], [x + 10 * s, y + r + 12], [x + 10 * s, y + r + 2]], { w: 2.2, col: k % 3 ? PENCIL.blue : PENCIL.red, grp: 10 + k }));
-    out.push(S([[x - r, y + 6], [x - r - 14 * s, y - 10 * s], [x - r - 10 * s, y - 24 * s]], { w: 2.4, grp: 10 + k }));
-    out.push(S([[x + r, y + 6], [x + r + 14 * s, y - 10 * s], [x + r + 10 * s, y - 24 * s]], { w: 2.4, grp: 10 + k }));
-    if (k % 4 === 1) out.push(S([[x - 6 * s, y - r], [x - 2 * s, y - r - 12 * s], [x + 3 * s, y - r], [x + 8 * s, y - r - 10 * s]], { w: 2.2, grp: 10 + k }));
-  });
-  // the conductor on a podium below the photo, back to us
-  out.push(S([[150, 330], [234, 330], [226, 352], [158, 352], [150, 330]], { w: 3 })); out.push(Fill([[150, 330], [234, 330], [226, 352], [158, 352]], PENCIL.brown, 0.6));
-  out.push(...mouseDoodle(192, 292, 0.9, { hat: true, body: false }));
-  out.push(S([[172, 312], [166, 330], [174, 336], [212, 336], [218, 330], [212, 312]], { w: 3 })); out.push(Fill([[172, 312], [166, 330], [174, 336], [212, 336], [218, 330], [212, 312]], INK, 0.5));
-  out.push(T('la la laaa ♪', 60, -30, 34, PENCIL.red, { rot: -0.08 }));
-  out.push(T('♪', 330, -20, 40, PENCIL.blue, {})); out.push(T('♫', 400, 60, 34, PENCIL.pink, {}));
-  CACHE.choir = out; return out;
+// the toothbrush is the broom: red cap for a head, arms with buckets, the brush fanned into straw
+function doodleBroom() {
+  if (CACHE.broom) return CACHE.broom; const out = [];
+  out.push(...eye(312, 112, 8)); out.push(...eye(336, 112, 8));
+  out.push(Fill(circ(324, 152, 7, 8, 9), [60, 20, 30], 0.8)); out.push(S(circ(324, 152, 7, 8, 9), { w: 2.4, closed: true }));
+  out.push(S([[305, 330], [246, 300], [204, 330]], { w: 3.4, grp: 1 })); out.push(...bucket(196, 332, 1, 1));
+  out.push(S([[345, 330], [404, 300], [446, 330]], { w: 3.4, grp: 2 })); out.push(...bucket(454, 332, 1, 2));
+  out.push(Fill([[262, 606], [340, 606], [372, 722], [230, 722]], PENCIL.yellow, 0.35));
+  for (let k = 0; k < 9; k++) { const x0 = 280 + k * 6; out.push(S(bez([x0, 600], [x0 + (k - 4) * 8, 660], [x0 + (k - 4) * 18, 720], 6), { w: 2.6, col: k % 2 ? PENCIL.orange : PENCIL.yellow })); }
+  out.push(S([[270, 612], [336, 612]], { w: 3, col: PENCIL.brown }));
+  out.push(S(arc(230, 700, 30, 0.6, 2.2, 6), { w: 2, col: PENCIL.grey })); out.push(S(arc(380, 700, 30, 1.0, 2.6, 6), { w: 2, col: PENCIL.grey }));
+  CACHE.broom = out; return out;
 }
-function doodleBeach() {
-  if (CACHE.beach) return CACHE.beach;
-  const out = [];
-  // palm fronds on the two masts
-  for (const [tx, ty] of [[200, 128], [450, 126]]) {
-    for (let k = 0; k < 6; k++) { const a = -Math.PI * 0.95 + (k / 5) * Math.PI * 0.9; const tip = [tx + Math.cos(a) * 110, ty + Math.sin(a) * 60 + 30]; const mid = [tx + Math.cos(a) * 50, ty + Math.sin(a) * 40 - 30]; const frond = bez([tx, ty], mid, tip, 8); out.push(S(frond, { w: 3, col: PENCIL.green })); for (let i = 1; i < 8; i += 2) out.push(S([frond[i], [frond[i][0] + Math.cos(a + 1.2) * 16, frond[i][1] + Math.sin(a + 1.2) * 16]], { w: 2, col: PENCIL.green })); }
-    out.push(S(circ(tx - 10, ty + 14, 8, 8), { w: 2.4, col: PENCIL.brown })); out.push(S(circ(tx + 8, ty + 16, 8, 8), { w: 2.4, col: PENCIL.brown }));
+// the scissors are a stork's head: finger rings for eyes, open blades for a beak; the bird stands on the paper
+function doodleStork() {
+  if (CACHE.stork) return CACHE.stork; const out = [];
+  out.push(Fill(circ(256, 120, 20, 12), PENCIL.white, 0.95)); out.push(Fill(circ(262, 122, 9, 8), INK, 0.95));
+  out.push(Fill(circ(186, 254, 26, 12, 16), PENCIL.white, 0.95)); out.push(Fill(circ(196, 254, 9, 8), INK, 0.95));
+  out.push(S(scribble(222, 190, 128, 3, 26), { w: 3.4, closed: true }));
+  out.push(S([[160, 90], [150, 46], [176, 66], [186, 24], [200, 62], [232, 34]], { w: 2.6 }));
+  out.push(...star(472, 190, 10, PENCIL.yellow)); out.push(...star(430, 332, 8, PENCIL.yellow));
+  out.push(S(bez([150, 300], [70, 380], [110, 470], 10).concat(bez([110, 470], [130, 520], [100, 562], 8)), { w: 4 }));
+  out.push(S(bez([200, 320], [130, 400], [160, 470], 10).concat(bez([160, 470], [180, 520], [160, 562], 8)), { w: 4 }));
+  out.push(Fill(circ(130, 622, 120, 20, 66), PENCIL.white, 0.9)); out.push(S(circ(130, 622, 120, 20, 66), { w: 4, closed: true }));
+  out.push(S(bez([30, 612], [90, 560], [190, 592], 10), { w: 3 })); out.push(S(bez([40, 642], [110, 600], [220, 622], 10), { w: 3 }));
+  out.push(S([[110, 688], [100, 792], [80, 802]], { w: 3.4, col: PENCIL.orange })); out.push(S([[100, 792], [122, 802]], { w: 3, col: PENCIL.orange }));
+  out.push(S([[160, 688], [180, 792], [160, 802]], { w: 3.4, col: PENCIL.orange })); out.push(S([[180, 792], [204, 800]], { w: 3, col: PENCIL.orange }));
+  out.push(T('SNIP!', 470, 100, 60, PENCIL.red, { rot: -0.15, outline: 'rgba(255,255,255,0.9)' }));
+  CACHE.stork = out; return out;
+}
+// the teapot is an elephant: the spout a trunk that hoses water (group 1), the handle a tail
+function doodleElephant() {
+  if (CACHE.elephant) return CACHE.elephant; const out = [];
+  for (const [x, y] of [[425, 175], [448, 150], [468, 128]]) out.push(S([[x - 10, y - 8], [x + 10, y + 8]], { w: 2.6, col: PENCIL.grey }));
+  out.push(Fill(circ(210, 195, 62, 16, 76), [230, 200, 205], 0.7)); out.push(S(circ(210, 195, 62, 16, 76), { w: 3.4, closed: true }));
+  out.push(S(bez([180, 150], [230, 180], [200, 250], 8), { w: 2.4, col: PENCIL.pink }));
+  out.push(...eye(352, 165, 13)); out.push(S([[330, 142], [372, 138]], { w: 3 }));
+  out.push(S(bez([380, 215], [405, 240], [432, 212], 8), { w: 3 }));
+  out.push(Fill([[396, 236], [440, 256], [446, 244], [402, 226]], PENCIL.white, 0.95)); out.push(S([[396, 236], [440, 256], [446, 244]], { w: 2.6 }));
+  out.push(S([[172, 104], [156, 78], [176, 88], [172, 60], [192, 84]], { w: 2.6 }));
+  for (const x of [230, 280, 330, 380]) { const leg = [[x, 345], [x - 4, 400], [x + 26, 400], [x + 24, 345]]; out.push(Fill(leg, [225, 225, 230], 0.8)); out.push(S(leg, { w: 3 })); for (const t of [2, 12, 22]) out.push(S(arc(x + t, 400, 5, Math.PI, TAU, 4), { w: 2 })); }
+  for (let k = 0; k < 3; k++) out.push(S(bez([488, 105], [560 + k * 20, 20 + k * 10], [640 + k * 40, 120 + k * 30], 10), { w: 3, col: PENCIL.blue, grp: 1 }));
+  for (let k = 0; k < 5; k++) out.push(S(circ(560 + ihash(k, 5, 5) * 140, 40 + ihash(k, 6, 5) * 120, 5, 6), { w: 2, col: PENCIL.blue, grp: 1 }));
+  out.push(T('PFFFT!', 560, 40, 46, PENCIL.blue, { rot: -0.1, grp: 1 }));
+  CACHE.elephant = out; return out;
+}
+// the mug is a wishing well: posts, a shingled roof, a rope with a little bucket (group 1), water at the rim (group 2)
+function doodleWell() {
+  if (CACHE.well) return CACHE.well; const out = [];
+  out.push(S([[128, 100], [128, -110]], { w: 5, col: PENCIL.brown })); out.push(S([[402, 100], [402, -110]], { w: 5, col: PENCIL.brown }));
+  const roof = [[60, -100], [265, -270], [470, -100]]; out.push(Fill(roof.concat([[420, -130], [265, -250], [110, -130]]), PENCIL.red, 0.6)); out.push(S(roof, { w: 4.4 })); out.push(S([[110, -130], [265, -250], [420, -130]], { w: 3 }));
+  for (let k = 1; k < 5; k++) out.push(S([[lerp(60, 265, k / 5), lerp(-100, -270, k / 5)], [lerp(470, 265, k / 5), lerp(-100, -270, k / 5)]], { w: 2.2, col: PENCIL.brown }));
+  out.push(S([[128, -110], [402, -110]], { w: 5, col: PENCIL.brown }));
+  out.push(S([[265, -110], [265, 40]], { w: 2.6, grp: 1 })); out.push(...bucket(265, 40, 1.1, 1));
+  for (const [x, y, r] of [[180, 300, 34], [255, 380, 30], [335, 300, 32], [200, 460, 30], [320, 460, 34], [265, 220, 28], [175, 390, 24], [345, 390, 26]]) out.push(S(scribble(x, y, r, x + y, 14), { w: 2.2, col: PENCIL.grey, closed: true }));
+  out.push(Fill(circ(265, 116, 128, 20, 16), PENCIL.blue, 0.7, 2)); out.push(S(circ(265, 116, 128, 20, 16), { w: 2.4, col: [60, 110, 180], closed: true, grp: 2 }));
+  out.push(T('wishing well', 540, -180, 34, PENCIL.brown, { font: 'Patrick Hand', rot: 0.08 }));
+  CACHE.well = out; return out;
+}
+// the clothes peg is a crocodile: the open end its jaws, full of teeth
+function doodleCroc() {
+  if (CACHE.croc) return CACHE.croc; const out = [];
+  for (const [x, y] of [[330, 128], [372, 114]]) { out.push(Fill(circ(x, y, 18, 12), [200, 210, 160], 0.8)); out.push(S(circ(x, y, 18, 12), { w: 3, closed: true })); out.push(...eye(x + 2, y - 2, 10)); }
+  out.push(S(circ(548, 92, 4, 6), { w: 2.4 })); out.push(S(circ(560, 98, 4, 6), { w: 2.4 }));
+  for (let k = 0; k < 7; k++) { const t = k / 6; const x = lerp(310, 540, t), y1 = lerp(203, 134, t), y2 = lerp(233, 168, t); out.push(Fill([[x - 8, y1 - 4], [x + 8, y1 - 2], [x, y1 + 18]], PENCIL.white, 0.95)); out.push(S([[x - 8, y1 - 4], [x, y1 + 18], [x + 8, y1 - 2]], { w: 2 })); out.push(Fill([[x + 6, y2 + 4], [x + 22, y2 + 2], [x + 14, y2 - 14]], PENCIL.white, 0.95)); out.push(S([[x + 6, y2 + 4], [x + 14, y2 - 14], [x + 22, y2 + 2]], { w: 2 })); }
+  for (const [x, y] of [[150, 192], [190, 180], [230, 168], [270, 158]]) { out.push(Fill([[x - 12, y], [x, y - 22], [x + 12, y]], PENCIL.green, 0.7)); out.push(S([[x - 12, y], [x, y - 22], [x + 12, y]], { w: 2.4 })); }
+  for (const [x, y] of [[150, 300], [300, 268], [420, 240]]) { const leg = [[x, y], [x - 6, y + 46], [x + 26, y + 46], [x + 22, y]]; out.push(Fill(leg, PENCIL.green, 0.6)); out.push(S(leg, { w: 3 })); for (const t of [-4, 8, 20]) out.push(S([[x + t, y + 46], [x + t - 2, y + 58]], { w: 2.4 })); }
+  out.push(S(bez([62, 262], [-20, 300], [-40, 200], 10).concat(bez([-40, 200], [-50, 150], [-10, 140], 6)), { w: 5, col: PENCIL.green })); out.push(S(bez([70, 240], [0, 270], [-20, 200], 8), { w: 3, col: PENCIL.green }));
+  out.push(T('CHOMP', 470, 250, 44, PENCIL.green, { rot: 0.1, outline: 'rgba(255,255,255,0.9)' }));
+  CACHE.croc = out; return out;
+}
+// the tape measure is a snail: the case its shell, the pulled-out tape a very long neck with the head at the end
+function doodleSnail() {
+  if (CACHE.snail) return CACHE.snail; const out = [];
+  const sp = []; for (let i = 0; i <= 60; i++) { const a = (i / 60) * TAU * 2.2, r = 8 + i * 1.5; sp.push([195 + Math.cos(a) * r, 150 + Math.sin(a) * r * 0.9]); } out.push(S(sp, { w: 3.4, col: PENCIL.brown }));
+  const foot = [[70, 250], [80, 300], [300, 300], [330, 262], [290, 250]]; out.push(Fill(foot, PENCIL.green, 0.55)); out.push(S(foot, { w: 3, closed: true }));
+  out.push(Fill(circ(500, 372, 32, 14), PENCIL.green, 0.55)); out.push(S(circ(500, 372, 32, 14), { w: 3.2, closed: true }));
+  out.push(S([[492, 342], [480, 296]], { w: 3 })); out.push(...eye(478, 288, 9)); out.push(S([[514, 344], [530, 300]], { w: 3 })); out.push(...eye(534, 292, 9));
+  out.push(S(bez([488, 388], [500, 398], [514, 386], 6), { w: 2.6 }));
+  for (let k = 0; k < 4; k++) out.push(S(circ(40 - k * 30, 300 + k * 8, 4 + k, 6), { w: 2, col: PENCIL.blue }));
+  out.push(T('how far to safety?', 430, 70, 30, INK, { font: 'Patrick Hand', rot: -0.05 }));
+  CACHE.snail = out; return out;
+}
+// the croissant is a crab: eyes on stalks, claws off both tips, six legs
+function doodleCrab() {
+  if (CACHE.crab) return CACHE.crab; const out = [];
+  out.push(S([[292, 178], [278, 118]], { w: 3.4 })); out.push(...eye(276, 106, 14)); out.push(S([[326, 176], [342, 118]], { w: 3.4 })); out.push(...eye(346, 106, 14));
+  for (const [x0, y0, dx, dy] of [[76, 280, -1, -1], [536, 428, 1, -1]]) { const ex = x0 + dx * 70, ey = y0 + dy * 60; out.push(S([[x0, y0], [x0 + dx * 40, y0 + dy * 30], [ex, ey]], { w: 4, col: PENCIL.orange })); const claw = arc(ex, ey, 30, dx > 0 ? -2.4 : -0.7, dx > 0 ? 0.9 : 2.4, 10); out.push(Fill(claw, PENCIL.orange, 0.5)); out.push(S(claw, { w: 4, col: PENCIL.orange })); }
+  for (const [x, y, dx] of [[140, 420, -1], [190, 450, -1], [240, 470, -1], [420, 480, 1], [470, 460, 1], [510, 430, 1]]) out.push(S([[x, y], [x + dx * 40, y + 60], [x + dx * 30, y + 110]], { w: 3.4, col: PENCIL.orange }));
+  out.push(S(bez([290, 262], [312, 282], [336, 258], 6), { w: 2.6 }));
+  out.push(T('blub', 470, 150, 34, PENCIL.blue, { rot: 0.15 })); out.push(S(circ(430, 190, 6, 6), { w: 2, col: PENCIL.blue })); out.push(S(circ(445, 168, 4, 6), { w: 2, col: PENCIL.blue }));
+  CACHE.crab = out; return out;
+}
+// the running shoe is the ark: a mast out of the collar, a striped sail, rigging, and a life ring hung over the brand mark
+function doodleArk() {
+  if (CACHE.ark) return CACHE.ark; const out = [];
+  out.push(S([[346, 135], [346, -270]], { w: 5, col: PENCIL.brown })); out.push(S([[300, -230], [392, -230]], { w: 3.4, col: PENCIL.brown }));
+  const sail = bez([356, -240], [560, -160], [356, -40], 12); out.push(Fill(sail, PENCIL.white, 0.9));
+  for (let k = 1; k < 4; k++) { const y = lerp(-240, -40, k / 4); const w = Math.sin((k / 4) * Math.PI) * 95; out.push(Fill([[356, y - 12], [356 + w, y - 12], [356 + w, y + 12], [356, y + 12]], PENCIL.red, 0.5)); }
+  out.push(S(sail, { w: 3.4, closed: true }));
+  out.push(Fill([[346, -272], [406, -256], [346, -240]], PENCIL.red, 0.85)); out.push(S([[346, -272], [406, -256], [346, -240]], { w: 2.6 }));
+  out.push(S([[132, 282], [346, -240]], { w: 2, col: PENCIL.brown })); out.push(S([[430, 190], [346, -240]], { w: 2, col: PENCIL.brown }));
+  const ring = circ(330, 226, 36, 24); out.push(Fill(ring, PENCIL.white, 0.95)); for (const k of [0, 2]) out.push(Fill(arc(330, 226, 36, (k * Math.PI) / 2, ((k + 1) * Math.PI) / 2, 8).concat([[330, 226]]), PENCIL.red, 0.85)); out.push(S(ring, { w: 3.4, closed: true })); out.push(Fill(circ(330, 226, 15, 12), [235, 232, 240], 1)); out.push(S(circ(330, 226, 15, 12), { w: 2.6, closed: true }));
+  out.push(T('ARK', 250, 318, 34, PENCIL.white, { outline: 'rgba(43,42,51,0.9)', rot: -0.04 }));
+  out.push(...birdDoodle(430, 130, 1));
+  CACHE.ark = out; return out;
+}
+// the banana is a dolphin: a fluke on the stem, an eye and a smile at the tip, a fin, and a spout (group 1)
+function doodleDolphin() {
+  if (CACHE.dolphin) return CACHE.dolphin; const out = [];
+  for (const fl of [[[450, 70], [500, 30], [520, 70], [480, 95]], [[450, 70], [400, 30], [430, 90]]]) { out.push(Fill(fl, PENCIL.yellow, 0.7)); out.push(S(fl, { w: 3, closed: true })); }
+  out.push(...eye(160, 212, 11)); out.push(S(bez([110, 228], [140, 250], [180, 244], 8), { w: 3 }));
+  out.push(Fill([[300, 205], [330, 140], [365, 210]], PENCIL.yellow, 0.7)); out.push(S([[300, 205], [330, 140], [365, 210]], { w: 3 }));
+  out.push(Fill([[250, 262], [225, 310], [285, 285]], PENCIL.yellow, 0.7)); out.push(S([[250, 262], [225, 310], [285, 285]], { w: 3 }));
+  for (let k = 0; k < 3; k++) out.push(S(bez([205, 185], [190 + k * 14, 120 - k * 20], [230 + k * 20, 90 - k * 20], 8), { w: 2.6, col: PENCIL.blue, grp: 1 }));
+  for (const [x, y] of [[150, 320], [250, 335], [380, 320], [480, 300]]) out.push(S(arc(x, y, 30, Math.PI, TAU, 8, 12), { w: 2.6, col: PENCIL.blue }));
+  out.push(T('wheee', 100, 120, 40, PENCIL.blue, { rot: -0.2 }));
+  CACHE.dolphin = out; return out;
+}
+// the two lemons are two ducklings paddling in a row
+function doodleDucks() {
+  if (CACHE.ducks) return CACHE.ducks; const out = [];
+  for (const [cx, side] of [[172, 0], [382, 1]]) {
+    const L = cx - 78;
+    out.push(Fill([[L + 4, 268], [L - 34, 282], [L + 4, 296]], PENCIL.orange, 0.9)); out.push(S([[L + 4, 268], [L - 34, 282], [L + 4, 296]], { w: 2.6, closed: true })); out.push(S([[L - 30, 282], [L + 2, 282]], { w: 2 }));
+    out.push(...eye(L + 46, 252, 9)); out.push(S([[L + 34, 236], [L + 56, 232]], { w: 2.6 }));
+    out.push(S(arc(cx + 10, 292, 40, -0.6, 2.2, 10, 24), { w: 2.6, col: PENCIL.orange }));
+    out.push(S([[cx + 78, 262], [cx + 104, 244], [cx + 92, 286]], { w: 2.8 }));
+    for (const dx of [-20, 20]) { out.push(S([[cx + dx, 344], [cx + dx - 2, 378]], { w: 3, col: PENCIL.orange })); out.push(S([[cx + dx - 18, 378], [cx + dx - 2, 378], [cx + dx + 14, 378]], { w: 3, col: PENCIL.orange })); }
+    out.push(T(side ? 'peep!' : 'peep', cx - 40, 170, 36, PENCIL.orange, { rot: side ? 0.1 : -0.12 }));
   }
-  // the sea, drawn below the floodlights and spilling off the photo
-  const waves = []; for (let x = -60; x <= 700; x += 20) waves.push([x, 445 + Math.sin(x * 0.05) * 8]);
-  out.push(Fill(waves.concat([[700, 560], [-60, 560]]), PENCIL.blue, 0.55));
-  out.push(S(waves, { w: 3, col: [70, 120, 190] }));
-  for (let k = 0; k < 6; k++) out.push(S(arc(40 + k * 120, 490, 24, Math.PI, TAU, 8, 10), { w: 2.2, col: [235, 245, 255] }));
-  // a beach umbrella and a deckchair on the sand
-  out.push(S([[70, 470], [70, 380]], { w: 3 })); out.push(S(arc(70, 380, 70, Math.PI, TAU, 12, 40), { w: 3, col: PENCIL.red })); out.push(Fill(arc(70, 380, 70, Math.PI, TAU, 12, 40).concat([[140, 380], [0, 380]]), PENCIL.red, 0.6));
-  out.push(S([[130, 470], [150, 430], [200, 430], [190, 470]], { w: 3 })); out.push(Fill([[130, 470], [150, 430], [200, 430], [190, 470]], PENCIL.yellow, 0.6));
-  // the crowd on the beach
-  out.push(...frogDoodle(580, 500, 1)); out.push(...mouseDoodle(250, 500, 1, { hat: false })); out.push(...birdDoodle(640, 470, 1));
-  out.push(T('ooh!', 620, 420, 30, INK, { rot: 0.1 })); out.push(T('a beach party!', 380, 540, 34, PENCIL.red, { rot: -0.05 }));
-  // the fuse
-  out.push(S(bez([322, 402], [300, 440], [260, 470], 10).concat(bez([260, 470], [230, 490], [210, 480], 6)), { w: 3.5, col: PENCIL.brown, grp: 2 }));
-  CACHE.beach = out; return out;
+  CACHE.ducks = out; return out;
 }
-function doodleLaunch() {
-  if (CACHE.launch) return CACHE.launch;
-  const out = [];
-  // flames and smoke at the base, and the rocket's doodle spirit climbing off the top
-  out.push(S([[290, 400], [300, 460], [320, 420], [340, 470], [352, 400]], { w: 3, col: PENCIL.orange })); out.push(Fill([[292, 400], [300, 458], [320, 422], [340, 468], [350, 400]], PENCIL.orange, 0.8));
-  out.push(S([[300, 400], [310, 440], [320, 415], [332, 445], [342, 400]], { w: 2.4, col: PENCIL.yellow }));
-  for (let k = 0; k < 5; k++) out.push(...cloudDoodle(180 + k * 70, 430 + (k % 2) * 20, 0.7));
-  out.push(S([[300, 120], [320, 60], [340, 120], [340, 320], [300, 320], [300, 120]], { w: 3 })); out.push(Fill([[300, 120], [320, 60], [340, 120], [340, 320], [300, 320]], PENCIL.white, 0.8));
-  out.push(S([[300, 300], [280, 340], [300, 330]], { w: 3 })); out.push(S([[340, 300], [360, 340], [340, 330]], { w: 3 }));
-  out.push(S(circ(320, 200, 12, 10), { w: 2.6, col: PENCIL.blue }));
-  out.push(T('FWEEE!', 320, -80, 90, PENCIL.red, { rot: -0.08, outline: 'rgba(255,255,255,0.9)' }));
-  CACHE.launch = out; return out;
+// the light bulb is a jellyfish: a frill where glass meets brass, tentacles off the tip (group 1), a sleepy face in the glass
+function doodleJelly() {
+  if (CACHE.jelly) return CACHE.jelly; const out = [];
+  for (let k = 0; k < 6; k++) out.push(S(arc(230 + k * 32, 560, 16, 0, Math.PI, 6, 12), { w: 2.6, col: PENCIL.pink }));
+  for (let k = 0; k < 7; k++) { const x0 = 250 + k * 16; const pts = []; for (let i = 0; i <= 14; i++) pts.push([x0 + Math.sin(i * 0.9 + k) * (10 + i * 1.2) + (k - 3) * i * 2.2, 700 + i * 22]); out.push(S(pts, { w: 2.6, col: k % 2 ? PENCIL.pink : PENCIL.purple, grp: 1 })); }
+  out.push(S(arc(268, 400, 14, 0.2, Math.PI - 0.2, 8), { w: 3 })); out.push(S(arc(338, 400, 14, 0.2, Math.PI - 0.2, 8), { w: 3 }));
+  out.push(S(bez([282, 452], [303, 470], [324, 452], 6), { w: 2.8 })); out.push(Fill(circ(240, 440, 12, 8), PENCIL.pink, 0.5)); out.push(Fill(circ(366, 440, 12, 8), PENCIL.pink, 0.5));
+  for (const [x, y, r] of [[480, 300, 8], [505, 240, 6], [470, 180, 10], [520, 130, 5]]) out.push(S(circ(x, y, r, 8), { w: 2, col: PENCIL.blue }));
+  out.push(T('glow', 480, 660, 34, PENCIL.yellow, { rot: 0.2, outline: 'rgba(43,42,51,0.6)' }));
+  CACHE.jelly = out; return out;
 }
+// the skeleton key is the Master: the ornate bow his face (brows are groups 1 and 2), a beard down the shaft, a robe to the floor, an arm with the wand (group 3)
 function doodleMaster() {
-  if (CACHE.master) return CACHE.master;
-  const out = [];
-  // a tall hat, brim across the top of the photo, cone off onto the paper
-  out.push(S([[40, 12], [420, 6]], { w: 4 }));
-  out.push(S([[110, 8], [230, -150], [330, 8]], { w: 4 })); out.push(Fill([[110, 8], [230, -150], [330, 8]], PENCIL.purple, 0.7));
-  out.push(S([[160, -40], [290, -50]], { w: 3, col: PENCIL.yellow })); for (let k = 0; k < 4; k++) out.push(S([[200 + k * 22 - 34, -90 + (k % 2) * 30], [204 + k * 22 - 34, -86 + (k % 2) * 30]], { w: 5, col: PENCIL.yellow }));
-  // spectacles
-  out.push(S(circ(162, 118, 48, 20), { w: 3.6, closed: true })); out.push(S(circ(318, 130, 48, 20), { w: 3.6, closed: true })); out.push(S([[210, 120], [270, 128]], { w: 3.4 })); out.push(S([[114, 116], [60, 100]], { w: 3 })); out.push(S([[366, 130], [420, 118]], { w: 3 }));
-  // stern eyebrows
-  out.push(S([[110, 60], [200, 84]], { w: 5 })); out.push(S([[370, 70], [280, 92]], { w: 5 }));
-  // a long beard
-  out.push(S([[210, 262], [195, 315], [232, 355], [265, 372], [298, 355], [335, 315], [320, 264]], { w: 3.4 })); out.push(Fill([[210, 262], [195, 315], [232, 355], [265, 372], [298, 355], [335, 315], [320, 264]], [235, 235, 240], 0.85));
-  for (let k = 0; k < 4; k++) out.push(S(bez([232 + k * 20, 285], [228 + k * 20, 325], [242 + k * 20, 360], 6), { w: 2, col: [150, 150, 160] }));
-  // the staff with a crescent moon
-  out.push(S([[440, 330], [450, -90]], { w: 5, col: PENCIL.brown })); out.push(S(arc(450, -118, 28, -1.2, 2.6, 10), { w: 3.4, col: PENCIL.yellow })); out.push(S(arc(459, -118, 20, -1.4, 2.5, 8), { w: 3, col: PENCIL.yellow }));
-  for (let k = 0; k < 5; k++) out.push(S([[480 + ihash(k, 1, 1) * 60, -130 + ihash(k, 2, 1) * 100], [484 + ihash(k, 1, 1) * 60, -126 + ihash(k, 2, 1) * 100]], { w: 5, col: PENCIL.yellow }));
-  // a robe collar
-  out.push(S([[-30, 300], [60, 250], [130, 300]], { w: 3.4, col: PENCIL.purple })); out.push(S([[400, 300], [470, 250], [530, 300]], { w: 3.4, col: PENCIL.purple }));
-  out.push(T('hmm…', -70, 60, 44, INK, { rot: -0.2 }));
+  if (CACHE.master) return CACHE.master; const out = [];
+  out.push(...eye(268, 262, 15)); out.push(...eye(342, 262, 15));
+  out.push(S([[238, 236], [292, 246]], { w: 6, grp: 1 })); out.push(S([[372, 236], [318, 246]], { w: 6, grp: 2 }));
+  const beard = [[268, 322], [236, 420], [270, 520], [312, 560], [354, 520], [388, 420], [356, 322]]; out.push(Fill(beard, [235, 235, 240], 0.9)); out.push(S(beard, { w: 3.4, closed: true }));
+  for (let k = 0; k < 4; k++) out.push(S(bez([275 + k * 22, 350], [268 + k * 22, 430], [290 + k * 22, 520], 6), { w: 2, col: [150, 150, 160] }));
+  out.push(Fill([[300, 340], [140, 800], [486, 800], [326, 340]], PENCIL.purple, 0.32));
+  out.push(S([[300, 340], [140, 800]], { w: 3.6, col: PENCIL.purple })); out.push(S([[326, 340], [486, 800]], { w: 3.6, col: PENCIL.purple }));
+  for (let k = 0; k < 7; k++) out.push(...star(200 + ihash(k, 9, 2) * 230, 560 + ihash(k, 8, 2) * 220, 7, PENCIL.yellow));
+  out.push(S([[300, 780], [270, 800], [230, 800]], { w: 3 })); out.push(S([[326, 780], [356, 800], [396, 800]], { w: 3 }));
+  out.push(S([[330, 470], [420, 420], [470, 350]], { w: 4, grp: 3 })); out.push(S([[470, 350], [500, 250]], { w: 4.4, col: PENCIL.brown, grp: 3 })); out.push(...withGrp(star(502, 238, 14, PENCIL.yellow), 3));
+  out.push(T('AHEM.', 500, 160, 52, INK, { rot: 0.06 }));
   CACHE.master = out; return out;
 }
+// the broccoli is a tree on an island: trunk, sandy mound, a swing, a nest, apples and a flag
+function doodleIsland() {
+  if (CACHE.island) return CACHE.island; const out = [];
+  out.push(Fill([[280, 300], [272, 420], [330, 420], [320, 300]], PENCIL.brown, 0.5)); out.push(S([[280, 300], [272, 420]], { w: 4, col: PENCIL.brown })); out.push(S([[320, 300], [330, 420]], { w: 4, col: PENCIL.brown }));
+  out.push(Fill(circ(300, 430, 240, 24, 40), PENCIL.yellow, 0.5)); out.push(S(arc(300, 430, 240, Math.PI, TAU, 16, 40), { w: 3.4, col: PENCIL.brown }));
+  out.push(S([[232, 232], [226, 330]], { w: 2.2 })); out.push(S([[268, 236], [274, 330]], { w: 2.2 })); out.push(S([[214, 330], [286, 330]], { w: 4, col: PENCIL.brown })); out.push(...birdDoodle(250, 316, 0.8));
+  out.push(S(scribble(390, 128, 26, 4, 14), { w: 2.6, col: PENCIL.brown, closed: true })); out.push(...birdDoodle(380, 116, 0.6)); out.push(...birdDoodle(402, 118, 0.6));
+  for (const [x, y] of [[236, 190], [352, 150], [398, 236], [300, 120]]) { out.push(Fill(circ(x, y, 10, 8), PENCIL.red, 0.9)); out.push(S(circ(x, y, 10, 8), { w: 2.2, closed: true })); }
+  out.push(S([[470, 420], [470, 330]], { w: 3, col: PENCIL.brown })); out.push(Fill([[470, 330], [530, 345], [470, 360]], PENCIL.pink, 0.8)); out.push(S([[470, 330], [530, 345], [470, 360]], { w: 2.4 }));
+  out.push(T('DRY LAND', 300, 500, 40, PENCIL.brown, { rot: -0.03 }));
+  CACHE.island = out; return out;
+}
+// the umbrella, seen from below, is a sea turtle's shell: head, four flippers, a tail
+function doodleTurtle() {
+  if (CACHE.turtle) return CACHE.turtle; const out = [];
+  out.push(Fill(circ(545, 205, 48, 16, 40), PENCIL.green, 0.6)); out.push(S(circ(545, 205, 48, 16, 40), { w: 3.4, closed: true }));
+  out.push(...eye(556, 192, 10)); out.push(S(bez([560, 224], [578, 236], [592, 220], 6), { w: 2.6 }));
+  for (const [x0, y0, x1, y1, x2, y2] of [[170, 60, 80, 0, 140, 110], [430, 50, 520, -10, 470, 100], [150, 330, 70, 380, 140, 280], [450, 340, 530, 390, 460, 280]]) { out.push(Fill([[x0, y0], [x1, y1], [x2, y2]], PENCIL.green, 0.6)); out.push(S(bez([x0, y0], [x1, y1], [x2, y2], 8), { w: 3.4 })); }
+  out.push(Fill([[290, 380], [300, 430], [312, 380]], PENCIL.green, 0.6)); out.push(S([[290, 380], [300, 430], [312, 380]], { w: 3 }));
+  for (let k = 0; k < 8; k++) { const a = (k / 8) * TAU; out.push(S(scribble(300 + Math.cos(a) * 110, 195 + Math.sin(a) * 110, 22, k, 10), { w: 2, col: PENCIL.brown, closed: true })); }
+  out.push(T('no hurry', 60, 380, 34, PENCIL.green, { rot: -0.05 }));
+  CACHE.turtle = out; return out;
+}
+// the whisk is the whirlpool that drains the flood: spirals (group 1) spin around the wire cage
+function doodleWhirl() {
+  if (CACHE.whirl) return CACHE.whirl; const out = [];
+  const sp = []; for (let i = 0; i <= 90; i++) { const a = (i / 90) * TAU * 3, r = 40 + i * 3.2; sp.push([380 + Math.cos(a) * r, 235 + Math.sin(a) * r * 0.55]); } out.push(S(sp, { w: 3.6, col: [60, 110, 180], grp: 1 }));
+  const sp2 = []; for (let i = 0; i <= 60; i++) { const a = Math.PI + (i / 60) * TAU * 2, r = 60 + i * 3.6; sp2.push([380 + Math.cos(a) * r, 235 + Math.sin(a) * r * 0.55]); } out.push(S(sp2, { w: 2.4, col: PENCIL.blue, grp: 1 }));
+  for (let k = 0; k < 6; k++) { const a = (k / 6) * TAU; const x = 380 + Math.cos(a) * 300, y = 235 + Math.sin(a) * 165; out.push(S([[x, y], [x + Math.cos(a + 1.9) * 26, y + Math.sin(a + 1.9) * 16]], { w: 3, col: PENCIL.blue, grp: 1 })); }
+  out.push(T('GLUG GLUG', 150, 110, 46, [60, 110, 180], { rot: -0.08, outline: 'rgba(255,255,255,0.9)' }));
+  CACHE.whirl = out; return out;
+}
+// the fork is Neptune's trident, and a crowned sea-king off the handle end grips it
+function doodleSeaKing() {
+  if (CACHE.seaking) return CACHE.seaking; const out = [];
+  out.push(Fill(circ(-70, 130, 66, 20), [200, 225, 210], 0.8)); out.push(S(circ(-70, 130, 66, 20), { w: 3.6, closed: true }));
+  const crown = [[-130, 84], [-120, 30], [-95, 70], [-70, 20], [-45, 70], [-20, 30], [-12, 84]]; out.push(Fill(crown, PENCIL.yellow, 0.7)); out.push(S(crown, { w: 3.4, col: PENCIL.yellow }));
+  out.push(...eye(-92, 120, 11)); out.push(...eye(-50, 120, 11)); out.push(S([[-108, 100], [-80, 106]], { w: 5 })); out.push(S([[-34, 100], [-62, 106]], { w: 5 }));
+  const beard = [[-120, 150], [-140, 240], [-90, 300], [-40, 290], [0, 230], [-20, 150]]; out.push(Fill(beard, [200, 225, 210], 0.9)); out.push(S(beard, { w: 3.2, closed: true }));
+  for (let k = 0; k < 5; k++) out.push(S(bez([-115 + k * 24, 170], [-125 + k * 24, 230], [-100 + k * 24, 280], 6), { w: 2, col: PENCIL.green }));
+  out.push(S([[-30, 200], [30, 150], [60, 100]], { w: 5 })); out.push(Fill(circ(62, 96, 16, 10), [200, 225, 210], 0.9)); out.push(S(circ(62, 96, 16, 10), { w: 3.4 }));
+  for (let k = 0; k < 3; k++) out.push(...star(410 + k * 70, 20 - k * 4, 12 + k * 2, PENCIL.yellow));
+  for (const [x, y] of [[150, 300], [280, 330], [420, 300], [-80, 340]]) out.push(S(arc(x, y, 40, Math.PI, TAU, 10, 16), { w: 3, col: PENCIL.blue }));
+  out.push(T('the SEA-KING', 300, 240, 44, [60, 110, 180], { rot: -0.1, outline: 'rgba(255,255,255,0.9)' }));
+  CACHE.seaking = out; return out;
+}
+const DOODLE_OF = { pencil: doodleApprentice, toothbrush: doodleBroom, scissors: doodleStork, teapot: doodleElephant, mug: doodleWell, clothespin: doodleCroc, tape: doodleSnail, croissant: doodleCrab, sneaker: doodleArk, banana: doodleDolphin, lemons: doodleDucks, bulb: doodleJelly, key: doodleMaster, broccoli: doodleIsland, umbrella: doodleTurtle, whisk: doodleWhirl, fork: doodleSeaKing };
+
+// ============================================================ scene furniture
+const PAPER = { cream: '#f0e7d2', mint: '#d9e8d8', sky: '#d5e4ee', sand: '#f2e6c8', lilac: '#e0d5e6', storm: '#bfc9da' };
+function caption(txt, t0, F, a = 1) { lettering(txt, 70, H - 50, 34, [90, 85, 110], { font: 'Patrick Hand', align: 'left', a: sstep(0, 1.5, F.t - t0) * a }); }
+// the flood: a pencil-blue sea from `level` down, with crests drifting along
+function water(level, F, o = {}) {
+  const amp = o.amp == null ? 10 : o.amp; const pts = [];
+  for (let x = -40; x <= W + 40; x += 24) pts.push([x, level + Math.sin(x * 0.012 + F.t * 1.6) * amp + Math.sin(x * 0.031 - F.t * 2.3) * amp * 0.5]);
+  ctx.save(); ctx.globalAlpha *= o.a == null ? 0.75 : o.a; pencil(pts.concat([[W + 40, H + 40], [-40, H + 40]]), PENCIL.blue, 0.6, 3); ctx.restore();
+  ink(pts, { w: 4, col: [60, 110, 180], seed: 31 });
+  for (let k = 0; k < 8; k++) { const x = ((k * 260 + F.t * 40) % (W + 200)) - 100; const y = level + Math.sin(x * 0.012 + F.t * 1.6) * amp - 6; ink(arc(x, y, 22, Math.PI, TAU, 8, 10), { w: 2.4, col: [235, 245, 255], seed: 40 + k }); }
+}
+// a splash at the waterline on every accent since t0
+function splashes(F, t0, level, seedBase = 0) {
+  const n0 = accCountAt(t0);
+  for (let k = Math.max(0, F.accN - n0 - 6); k < F.accN - n0; k++) {
+    const age = F.t - accentBirth(k, t0); if (age < 0 || age > 0.9) continue;
+    const cx = 100 + ihash(k, 1, seedBase) * (W - 200), cy = level - 10;
+    for (let j = 0; j < 7; j++) { const a = -Math.PI * 0.15 - (j / 6) * Math.PI * 0.7; const r = 30 + age * 220; ink([[cx + Math.cos(a) * r * 0.3, cy + Math.sin(a) * r * 0.3], [cx + Math.cos(a) * r, cy + Math.sin(a) * r + age * age * 300]], { w: 3, col: PENCIL.blue, a: 1 - age / 0.9, seed: 700 + k * 9 + j }); }
+    lettering('SPLASH', cx, cy - 60 - age * 60, 30 + age * 20, [60, 110, 180], { a: 1 - age / 0.9, rot: (ihash(k, 2, seedBase) - 0.5) * 0.4 });
+  }
+}
+// a broom card standing with its bottom at (x, y), hopping on the notes and swinging its buckets
+function broom(F, x, y, h, phase, o = {}) {
+  const w = h * 0.8, rect = [x - w / 2, y - h, w, h];
+  const hop = -Math.abs(Math.sin(F.t * 7 + phase)) * 10 * F.on;
+  ctx.save(); if (o.a != null) ctx.globalAlpha *= o.a; ctx.translate(0, hop);
+  const swing = Math.sin(F.t * 5 + phase) * 0.2 * (0.3 + F.on);
+  placed('toothbrush', rect, Math.sin(F.t * 3 + phase) * 0.05 + (o.rot || 0), doodleBroom(), o.prog, { 1: { rot: swing, pivot: [305, 330] }, 2: { rot: -swing, pivot: [345, 330] } });
+  ctx.restore();
+}
+// the apprentice standing on the ark's collar
+function aboard(F, arkRect, arkRot, scale, tx) { const p = mapper('sneaker', arkRect)(345, 150); ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(arkRot); placed('pencil', [-60 * scale, -220 * scale, 120 * scale, 180 * scale], 0, doodleApprentice(), null, tx || { 2: { rot: Math.sin(F.t * 7) * 0.3 * (0.3 + F.on), pivot: [424, 720] } }); ctx.restore(); }
 
 // ============================================================ scenes
-const PAPER = { night: '#cfc6df', mint: '#d9e8d8', pink: '#f1dcd8', cream: '#f0e7d2', sky: '#d5e4ee', lilac: '#e0d5e6', sand: '#f2e6c8' };
-const RECT = { balloon: [600, 560, 720, 480], choir: [470, 190, 998, 788], beach: [448, 250, 1024, 683], master: [520, 330, 880, 585] };
-function pinboard(F, a, withDoodles) {
-  const spots = [['coffee', [150, 330, 420, 280], -0.06, 'balloon', doodleBalloon], ['coins', [640, 260, 380, 300], 0.04, 'choir', doodleChoir], ['rocket', [1100, 250, 420, 280], -0.03, 'beach', doodleBeach], ['chelsea', [1540, 300, 360, 240], 0.05, 'master', doodleMaster]];
-  ctx.save(); ctx.globalAlpha = a;
-  for (const [name, rect, rot, key, fn] of spots) {
-    card(name, rect, rot);
-    if (withDoodles) { ctx.save(); ctx.translate(rect[0] + rect[2] / 2, rect[1] + rect[3] / 2); ctx.rotate(rot); ctx.translate(-(rect[0] + rect[2] / 2), -(rect[1] + rect[3] / 2)); const strokes = fn(); drawDoodle(strokes, total(strokes), mapper(name, rect)); ctx.restore(); }
-  }
-  ctx.restore();
+// 1 · the cut, and the halves get up  (0 → multiply)
+function sceneCut(F, u, C) {
+  paper(PAPER.cream); const t = F.t;
+  const titleA = sstep(0.2, 1.2, t) * (1 - sstep(C.rise + 2, C.rise + 4, t));
+  lettering(CONFIG.title, W / 2, 120, 84, INK, { a: titleA });
+  lettering(CONFIG.composer + '  ·  seventeen photographs, one spell', W / 2, 190, 36, [90, 85, 110], { font: 'Patrick Hand', a: sstep(0.5, 1.5, t) * (1 - sstep(C.rise + 2, C.rise + 4, t)) });
+  // the stork has just snipped the broom in two; it flees when the halves stir
+  const flee = sstep(C.rise + 3, C.rise + 9, t);
+  placed('scissors', [520 - flee * 1200, 250, 480, 360], 0.04 - flee * 0.3, doodleStork(), reveal(F, C.theme, C.rise, total(doodleStork())));
+  // the broom card, cut across the middle
+  const gap = 6 + 14 * sstep(1.5, 3, t), fade = 1 - sstep(C.rise + 2.5, C.rise + 5, t), bRect = [1150, 300, 260, 325];
+  if (fade > 0) { ctx.save(); ctx.globalAlpha = fade; const jit = t > C.rise ? F.on * 8 : 0; halfCard('toothbrush', bRect, 0.06, 0, gap, (noise2(t * 20, 1) - 0.5) * jit); halfCard('toothbrush', bRect, 0.06, 1, gap, (noise2(t * 20, 5) - 0.5) * jit); ctx.restore(); }
+  // …and both halves get up as whole brooms, their arms and buckets drawn on the notes
+  const s = sstep(C.rise + 2, C.rise + 8, t);
+  if (s > 0) { const prog = reveal(F, C.rise + 5, C.multiply - 0.5, total(doodleBroom()));
+    for (const [k, cx0, cy0, cx1, cy1] of [[0, 1280, 380, 1130, 450], [1, 1280, 545, 1520, 490]]) { const sc = 0.5 + 0.5 * s, w = 240 * sc, h = 300 * sc, cx = lerp(cx0, cx1, s), cy = lerp(cy0, cy1, s); ctx.save(); ctx.globalAlpha = sstep(0, 0.4, s); const hop = t > C.rise + 8 ? -Math.abs(Math.sin(t * 7 + k)) * 12 * F.on : 0; const swing = Math.sin(t * 5 + k) * 0.2 * F.on; placed('toothbrush', [cx - w / 2, cy - h / 2 + hop, w, h], (k ? -1 : 1) * 0.1 * (1 - s) + Math.sin(t * 3 + k) * 0.04 * s, doodleBroom(), prog, { 1: { rot: swing, pivot: [305, 330] }, 2: { rot: -swing, pivot: [345, 330] } }); ctx.restore(); } }
+  // the apprentice — he is the pencil
+  placed('pencil', [1560, 520, 220, 330], -0.06, doodleApprentice(), reveal(F, C.theme + 2, C.rise + 4, total(doodleApprentice())), { 2: { rot: Math.sin(t * 6) * 0.25 * F.on, pivot: [424, 720] } });
+  if (t < C.rise + 4) caption('the apprentice has cut the enchanted broom in two…', 1, F, 1 - sstep(C.rise + 3, C.rise + 4, t)); else caption('…and both halves get up', C.rise + 4, F);
 }
-function sceneIntro(F, u, C) {
-  paper(PAPER.cream);
-  lettering(CONFIG.title, W / 2, 130, 84, INK, { a: sstep(0.2, 1.2, F.t) });
-  lettering(CONFIG.composer + '  ·  four photographs, one spell', W / 2, 200, 36, [90, 85, 110], { font: 'Patrick Hand', a: sstep(0.5, 1.5, F.t) });
-  // the photos land on the board one by one
-  const spots = [['coffee', [150, 250, 420, 280], -0.06], ['coins', [640, 300, 380, 300], 0.04], ['rocket', [1100, 230, 420, 280], -0.03], ['chelsea', [1540, 300, 360, 240], 0.05]];
-  spots.forEach(([name, rect, rot], k) => { const s = sstep(1.5 + k * 1.2, 2.3 + k * 1.2, F.t); if (s <= 0) return; const sc = 1 + (1 - s) * 0.6; const r = [rect[0] + rect[2] / 2 - (rect[2] * sc) / 2, rect[1] + rect[3] / 2 - (rect[3] * sc) / 2 - (1 - s) * 200, rect[2] * sc, rect[3] * sc]; card(name, r, rot * s, { a: s }); });
-  // the apprentice's wand sweeps across, leaving sparkles
-  const wx = 200 + u * 1500, wy = 760 + Math.sin(u * 9) * 40;
-  ink([[wx - 60, wy + 40], [wx, wy]], { w: 4, seed: 3 }); sparkle(wx + 4, wy - 6, 14, PENCIL.yellow, 1, 7);
-  for (let k = 0; k < 14; k++) { const uu = u - k * 0.03; if (uu < 0) continue; sparkle(200 + uu * 1500 + (ihash(k, 1, 1) - 0.5) * 40, 760 + Math.sin(uu * 9) * 40 - k * 6, 6, k % 2 ? PENCIL.yellow : PENCIL.purple, 1 - k / 14, 20 + k); }
-  lettering('the spell is cast…', wx - 200, wy + 90, 34, INK, { font: 'Patrick Hand', a: sstep(0.6, 0.8, u) });
+// 2 · the multiplication  (multiply → flood): the well, the elephant, and more brooms on every accent
+function sceneMultiply(F, u, C) {
+  paper(PAPER.mint); const t = F.t;
+  const wl = lerp(H + 40, H * 0.62, sstep(C.overflow, C.flood, t));
+  placed('pencil', [70, 110, 150, 225], -0.08, doodleApprentice(), null, { 1: { rot: Math.sin(t * 8) * 0.4 * (0.3 + F.on), pivot: [352, 720] }, 2: { rot: -Math.sin(t * 8) * 0.4 * (0.3 + F.on), pivot: [424, 720] } });
+  lettering('stop! STOP!', 330, 170, 40, PENCIL.red, { rot: -0.1, a: 0.6 + 0.4 * F.on });
+  // the elephant hoses the well from the left
+  const eRect = [120, 560, 480, 320], elephant = doodleElephant(), eProg = reveal(F, C.multiply, C.multiply + 12, total(elephant)), spraying = eProg >= total(elephant);
+  placed('teapot', eRect, 0.03, elephant, eProg, { 1: { a: spraying ? 0.5 + 0.5 * F.on : 0, rot: Math.sin(t * 9) * 0.05, pivot: [488, 105] } });
+  // the well fills, then overflows
+  const mRect = [780, 540, 360, 360], well = doodleWell(), fill = sstep(C.multiply + 6, C.overflow, t);
+  placed('mug', mRect, 0.01, well, reveal(F, C.multiply, C.multiply + 9, total(well)), { 1: { y: Math.sin(t * 2) * 10 - 40 * fill } });
+  if (fill > 0) { const M = mapper('mug', mRect); const top = lerp(520, 130, fill); const poly = []; for (let x = 125; x <= 405; x += 20) poly.push(M(x, top + Math.sin(x * 0.05 + t * 3) * 6)); poly.push(M(405, 520)); poly.push(M(125, 520)); pencil(poly, PENCIL.blue, 0.55, 5); }
+  if (t > C.overflow) { const M = mapper('mug', mRect); for (const x of [128, 402]) { const d = x < 300 ? -1 : 1; ink([M(x, 110), M(x + d * 20, 300), M(x + d * 40, 520), M(x + d * 60, 700)], { w: 4, col: [60, 110, 180], seed: 60 + x }); } }
+  // two brooms, then more on every accent, marching in from the right
+  const n = Math.min(14, 2 + Math.floor((F.accN - accCountAt(C.multiply)) * 0.7));
+  const slots = []; for (let k = 0; k < 14; k++) slots.push([1180 + ihash(k, 3, 3) * 660, 690 + ihash(k, 4, 3) * 330, k]);
+  slots.sort((a, b) => a[1] - b[1]);
+  for (const [x, y, k] of slots) { if (k >= n) continue; const born = k < 2 ? C.multiply : accentBirth(Math.ceil((k - 2) / 0.7), C.multiply); const pop = sstep(0, 0.35, t - born); if (pop <= 0) continue; const h = (330 - (y - 690) * 0.35) * (0.6 + 0.4 * pop); broom(F, x, y, h, k * 1.7, { a: pop }); if (pop < 1) sparkle(x, y - h, 22 * (1 - pop) + 6, PENCIL.yellow, 1, 90 + k); }
+  if (wl < H + 30) water(wl, F, { amp: 8 });
+  if (t > C.overflow + 2) splashes(F, C.overflow + 2, wl, 3);
+  lettering(n + ' brooms', 1700, 120, 60, INK, { rot: 0.06 });
+  if (t < C.overflow) caption('one bucket, two buckets, twelve buckets…', C.multiply, F, 1 - sstep(C.overflow - 1, C.overflow, t)); else caption('the brooms will not stop', C.overflow, F);
 }
-function sceneBalloon(F, u, C) {
-  paper(PAPER.sky);
-  const rect = RECT.balloon, M = mapper('coffee', rect), strokes = doodleBalloon();
-  const prog = reveal(F, C.balloon, C.balloon + 16, total(strokes));
-  const done = prog >= total(strokes);
-  // once drawn, the balloon (group 1) bobs with the music
-  const bob = done ? { 1: { y: Math.sin(F.t * 1.1) * 12 - 16 * sstep(C.balloon + 16, C.balloon + 24, F.t) * (0.5 + 0.5 * F.it), rot: Math.sin(F.t * 0.8) * 0.03, px: 948, py: 740 } } : {};
-  const lift = done ? -sstep(C.balloon + 16, C.balloon + 30, F.t) * 90 : 0;
-  ctx.save(); ctx.translate(0, lift);
-  card('coffee', rect, -0.02);
-  drawDoodle(strokes, prog, M, bob);
-  if (done) { const fl = 0.6 + 0.6 * F.on; const p = M(290, 30); ctx.save(); ctx.translate(0, bob[1].y); ink([[p[0] - 26 * fl, p[1] + 60], [p[0], p[1] - 50 * fl], [p[0] + 26 * fl, p[1] + 60]], { w: 3, col: PENCIL.orange, seed: 900 }); ctx.restore(); }
-  ctx.restore();
-  if (done) for (let k = 0; k < 3; k++) { const x = 160 + k * 640 + Math.sin(F.t * 0.4 + k) * 40, y = 160 + k * 60; sparkle(x, y, 8, PENCIL.yellow, 0.5 + 0.5 * F.on, 300 + k); }
-  lettering('the cup wants to fly', 70, H - 50, 34, [90, 85, 110], { font: 'Patrick Hand', align: 'left', a: sstep(0, 1.5, F.t - C.balloon) });
+// 3 · the flood  (flood → island): the workshop is an ocean; the ark, the dolphin, the ducklings, the jellyfish, the crocodile
+function sceneFlood(F, u, C) {
+  paper(PAPER.sky); const t = F.t, since = t - C.flood;
+  const wl = lerp(H * 0.62, H * 0.4, sstep(C.flood, C.island, t));
+  const bob = (ph, amp = 12) => Math.sin(t * 1.6 + ph) * amp;
+  const jRect = [1600, wl + 60 + bob(2, 20), 220, 330];
+  { const p = mapper('bulb', jRect)(310, 380); const g = ctx.createRadialGradient(p[0], p[1], 10, p[0], p[1], 260); g.addColorStop(0, `rgba(255,230,120,${0.25 + 0.5 * F.on})`); g.addColorStop(1, 'rgba(255,230,120,0)'); ctx.fillStyle = g; ctx.fillRect(p[0] - 260, p[1] - 260, 520, 520); }
+  placed('bulb', jRect, Math.sin(t * 0.8) * 0.08, doodleJelly(), reveal(F, C.flood + 6, C.flood + 16, total(doodleJelly())), { 1: { rot: Math.sin(t * 2) * 0.1, pivot: [300, 700] } });
+  for (let k = 0; k < 5; k++) broom(F, 200 + k * 380 + Math.sin(t * 0.7 + k) * 30, wl + 40 + bob(k * 1.3, 8), 150, k, { rot: Math.sin(t * 1.6 + k) * 0.15 });
+  placed('clothespin', [-460 + since * 34, wl - 200 + bob(3, 8), 420, 280], -0.05 - F.acc * 0.12, doodleCroc(), reveal(F, C.flood + 8, C.flood + 20, total(doodleCroc())));
+  const arkRect = [660, wl - 300 + bob(0, 14), 600, 480], arkRot = Math.sin(t * 1.6) * 0.05;
+  placed('sneaker', arkRect, arkRot, doodleArk(), reveal(F, C.flood, C.flood + 10, total(doodleArk())));
+  aboard(F, arkRect, arkRot, 1);
+  { const ph = (since * 0.45) % 1; const x = 20 + ph * 420, y = wl - 60 - Math.sin(ph * Math.PI) * 300; placed('banana', [x, y, 420, 280], (0.5 - ph) * 0.9 - 0.3, doodleDolphin(), reveal(F, C.flood + 2, C.flood + 12, total(doodleDolphin())), { 1: { a: ph < 0.5 ? 1 : 0 } }); }
+  placed('lemons', [1380, wl - 200 + bob(1, 10), 390, 260], Math.sin(t * 1.6 + 1) * 0.04, doodleDucks(), reveal(F, C.flood + 4, C.flood + 14, total(doodleDucks())));
+  water(wl, F, { amp: 14, a: 0.55 });
+  splashes(F, C.flood, wl, 7);
+  caption('the workshop is an ocean now', C.flood, F);
 }
-function sceneChoir(F, u, C) {
-  paper(PAPER.pink);
-  const rect = RECT.choir, M = mapper('coins', rect), strokes = doodleChoir();
-  const prog = reveal(F, C.choir, C.choir + 12, total(strokes));
-  const shake = F.acc * 6;
-  ctx.save(); ctx.translate((noise2(F.t * 30, 1) - 0.5) * shake, (noise2(F.t * 33, 2) - 0.5) * shake);
-  card('coins', rect, 0.01);
-  // singers who are already drawn open their mouths on the notes
-  const tx = {}; let acc = 0; const drawnMouths = [];
-  for (let k = 0; k < strokes.length; k++) { const s = strokes[k]; if (acc + s.n <= prog && s.grp >= 10) { tx[s.grp] = { y: -Math.abs(Math.sin(F.t * 6 + s.grp)) * 4 * F.on }; if (s.kind === 'ink' && s.col === PENCIL.red) drawnMouths.push(s.grp - 10); } acc += s.n; }
-  drawDoodle(strokes, prog, M, tx);
-  for (const k of drawnMouths) { const [x, y, r] = COINS[k]; const p = M(x, y + 10 * (r / 24)); const open = 3 + 14 * F.on * (0.6 + 0.4 * noise2(k, Math.floor(F.t * 4))); ctx.fillStyle = rgba([60, 20, 30], 0.85); ctx.beginPath(); ctx.ellipse(p[0], p[1], 9 * (r / 24), open * (r / 24), 0, 0, TAU); ctx.fill(); }
-  ctx.restore();
-  // the conductor's baton keeps time
-  const cp = M(230, 300); ink([[cp[0], cp[1]], [cp[0] + 60 + Math.sin(F.t * 8) * 30 * (0.4 + F.on), cp[1] - 50 - Math.abs(Math.sin(F.t * 8)) * 40]], { w: 3, seed: 700 });
-  lettering('the coins were a choir all along', 70, H - 50, 34, [90, 85, 110], { font: 'Patrick Hand', align: 'left', a: sstep(0, 1.5, F.t - C.choir) });
+// 4 · the island  (island → shriek): everyone for dry land — the crab has made it, the snail is on its way, the turtle ferries the ducklings
+function sceneIsland(F, u, C) {
+  paper(PAPER.sand); const t = F.t, since = t - C.island;
+  const wl = H * 0.6; const bob = (ph, amp = 12) => Math.sin(t * 1.6 + ph) * amp;
+  { const jRect = [1560, wl + 120 + bob(2, 16), 200, 300]; const p = mapper('bulb', jRect)(310, 380); const g = ctx.createRadialGradient(p[0], p[1], 10, p[0], p[1], 240); g.addColorStop(0, `rgba(255,230,120,${0.25 + 0.5 * F.on})`); g.addColorStop(1, 'rgba(255,230,120,0)'); ctx.fillStyle = g; ctx.fillRect(p[0] - 240, p[1] - 240, 480, 480); placed('bulb', jRect, Math.sin(t * 0.8) * 0.08, doodleJelly(), null, { 1: { rot: Math.sin(t * 2) * 0.1, pivot: [300, 700] } }); }
+  for (let k = 0; k < 4; k++) broom(F, ((k * 470 + since * 30) % (W + 200)) - 100, wl + 30 + bob(k, 8), 140, k + 3, { rot: Math.sin(t * 1.6 + k) * 0.2 });
+  placed('broccoli', [560, wl - 460, 600, 400], 0, doodleIsland(), reveal(F, C.island, C.island + 12, total(doodleIsland())));
+  placed('croissant', [980 + Math.sin(t * 2.2) * 16, wl - 300, 210, 210], Math.sin(t * 2.2) * 0.05, doodleCrab(), reveal(F, C.island + 3, C.island + 14, total(doodleCrab())));
+  { const x = 60 + Math.min(1, since / 30) * 380; placed('tape', [x, wl - 210 + bob(5, 6), 360, 270], 0.02, doodleSnail(), reveal(F, C.island + 6, C.island + 20, total(doodleSnail()))); lettering('hurry!', x + 60, wl - 250, 40, PENCIL.red, { rot: -0.1, a: 0.5 + 0.5 * F.on }); }
+  { const tRect = [1180 + Math.sin(t * 0.3) * 60, wl - 210 + bob(2, 10), 420, 280], rot = Math.sin(t * 1.6 + 2) * 0.03; placed('umbrella', tRect, rot, doodleTurtle(), reveal(F, C.island + 10, C.island + 24, total(doodleTurtle())));
+    const p = mapper('umbrella', tRect)(300, 150); ctx.save(); ctx.translate(p[0], p[1]); ctx.rotate(rot); placed('lemons', [-100, -140, 200, 133], 0, doodleDucks(), null); ctx.restore(); }
+  water(wl, F, { amp: 12, a: 0.55 });
+  splashes(F, C.island, wl, 11);
+  caption('everyone for the island', C.island, F);
 }
-function sceneBeach(F, u, C) {
-  paper(PAPER.sand);
-  const rect = RECT.beach, M = mapper('rocket', rect), strokes = doodleBeach();
-  const prog = reveal(F, C.beach, C.beach + 20, total(strokes));
-  card('rocket', rect, -0.01);
-  drawDoodle(strokes, prog, M);
-  // the spark travels along the fuse toward the launch
-  const fuseT = sstep(C.beach + 20, C.launch, F.t);
-  if (fuseT > 0) { const fuse = bez([322, 402], [300, 440], [260, 470], 10).concat(bez([260, 470], [230, 490], [210, 480], 6)); const i = (1 - fuseT) * (fuse.length - 1); const p = M(...fuse[Math.floor(i)]); sparkle(p[0], p[1], 12 + 6 * F.on, PENCIL.yellow, 1, 400); sparkle(p[0] + 8, p[1] - 10, 6, PENCIL.orange, 1, 401); ctx.fillStyle = rgba(PENCIL.orange, 0.9); ctx.beginPath(); ctx.arc(p[0], p[1], 5, 0, TAU); ctx.fill(); }
-  const count = C.launch - F.t;
-  if (count < 3.2 && count > 0) lettering(String(Math.ceil(count)) + '…', 1700, 200, 140, PENCIL.red, { rot: 0.1, a: 0.6 + 0.4 * (count % 1) });
-  lettering('the launch pad is a beach', 70, H - 50, 34, [90, 85, 110], { font: 'Patrick Hand', align: 'left', a: sstep(0, 1.5, F.t - C.beach) });
+// 5 · the shriek  (shriek → master): the sea-king rises on the trident, brooms fly, the ark pitches
+function sceneShriek(F, u, C) {
+  paper(PAPER.storm); const t = F.t, since = t - C.shriek;
+  const wl = lerp(H * 0.6, H * 0.5, sstep(0, 3, since));
+  for (let k = 0; k < 10; k++) { const a = since * 1.4 + (k / 10) * TAU; broom(F, W / 2 + Math.cos(a) * (600 + k * 20), wl - 200 + Math.sin(a) * 260, 130, k, { rot: a + Math.PI / 2 }); }
+  const arkRect = [260, wl - 320 + Math.sin(t * 2.4) * 24, 480, 384], arkRot = Math.sin(t * 2.4) * 0.22;
+  placed('sneaker', arkRect, arkRot, doodleArk(), null); aboard(F, arkRect, arkRot, 0.8, { 1: { rot: 0.6, pivot: [352, 720] }, 2: { rot: -0.6, pivot: [424, 720] } });
+  const rise = sstep(0, 2.5, since);
+  placed('fork', [1180, lerp(wl + 200, wl - 380, rise), 420, 280], -0.75, doodleSeaKing(), reveal(F, C.shriek + 0.5, C.master - 1.5, total(doodleSeaKing())));
+  water(wl, F, { amp: 30, a: 0.6 });
+  splashes(F, C.shriek, wl, 13);
+  if (F.acc > 0.3) { const x = 300 + ihash(F.accN, 4, 4) * 1300; ink([[x, 0], [x - 30, 120], [x + 20, 140], [x - 40, 300]], { w: 5, col: PENCIL.yellow, a: F.acc, seed: 77 }); ctx.fillStyle = `rgba(255,255,240,${0.25 * F.acc})`; ctx.fillRect(0, 0, W, H); }
+  lettering('WHOOSH', 960, 160, 110, PENCIL.white, { rot: -0.06, outline: 'rgba(43,42,51,0.9)', a: 0.5 + 0.5 * F.on });
+  caption('the sea-king wakes', C.shriek, F);
 }
-function sceneLaunch(F, u, C) {
-  paper(PAPER.sand);
-  const rect = RECT.beach, M = mapper('rocket', rect);
-  const since = F.t - C.launch;
-  const shake = 14 * (1 - sstep(0, 2, since)) + F.acc * 8;
-  ctx.save(); ctx.translate((noise2(F.t * 40, 1) - 0.5) * shake, (noise2(F.t * 43, 2) - 0.5) * shake);
-  card('rocket', rect, -0.01);
-  const beach = doodleBeach(); drawDoodle(beach, total(beach), M);
-  const strokes = doodleLaunch();
-  const prog = reveal(F, C.launch, C.launch + 4, total(strokes));
-  // the doodle rocket climbs off the top of the photo
-  const rise = -sstep(C.launch + 1, C.launch + 9, F.t) * 900;
-  ctx.save(); ctx.translate(0, rise);
-  drawDoodle(strokes, prog, M);
-  ctx.restore();
-  ctx.restore();
-  // fireworks on the accents, deterministic from the accent count
-  const n0 = accCountAt(C.launch);
-  for (let k = 0; k < F.accN - n0; k++) {
-    const born = (() => { for (let i = Math.floor(C.launch * A.fps); i < A.frames; i++) if (A.accCount[i] - n0 > k) return i / A.fps; return F.t; })();
-    const age = F.t - born; if (age > 1.6) continue;
-    const cx = 200 + ihash(k, 1, 90) * 1500, cy = 120 + ihash(k, 2, 90) * 400, col = [PENCIL.red, PENCIL.yellow, PENCIL.blue, PENCIL.pink, PENCIL.green][k % 5];
-    const r = 40 + age * 160;
-    for (let j = 0; j < 12; j++) { const a = (j / 12) * TAU; ink([[cx + Math.cos(a) * r * 0.4, cy + Math.sin(a) * r * 0.4], [cx + Math.cos(a) * r, cy + Math.sin(a) * r + age * age * 80]], { w: 3, col, a: 1 - age / 1.6, seed: 500 + k * 12 + j }); }
-    sparkle(cx, cy, 10, col, 1 - age / 1.6, 600 + k);
-  }
-  lettering('happy launch day', 70, H - 50, 34, [90, 85, 110], { font: 'Patrick Hand', align: 'left', a: sstep(0, 1.5, since) });
+// 6 · the Master is home  (master → drain): everything freezes mid-splash; the key comes down from the top of the paper
+function frozenFlood(F0, wl) {
+  for (let k = 0; k < 10; k++) { const a = (F0.t - F0.C.shriek) * 1.4 + (k / 10) * TAU; broom(F0, W / 2 + Math.cos(a) * (600 + k * 20), wl - 200 + Math.sin(a) * 260, 130, k, { rot: a + Math.PI / 2 }); }
+  const arkRect = [260, wl - 320 + Math.sin(F0.t * 2.4) * 24, 480, 384], arkRot = Math.sin(F0.t * 2.4) * 0.22;
+  placed('sneaker', arkRect, arkRot, doodleArk(), null); aboard(F0, arkRect, arkRot, 0.8, { 1: { rot: 0.6, pivot: [352, 720] }, 2: { rot: -0.6, pivot: [424, 720] } });
+  placed('fork', [1180, wl - 380, 420, 280], -0.75, doodleSeaKing(), null);
+  water(wl, F0, { amp: 30, a: 0.6 });
 }
 function sceneMaster(F, u, C) {
-  paper(PAPER.lilac);
-  const rect = RECT.master, M = mapper('chelsea', rect), strokes = doodleMaster();
-  const since = F.t - C.master, snapT = F.t - C.snap;
-  const prog = reveal(F, C.master, C.master + 16, total(strokes));
-  // after the snap, everything is erased in a hurry
-  const erase = snapT > 0 ? sstep(0.15, 1.0, snapT) : 0;
-  const shown = prog * (1 - erase);
-  card('chelsea', rect, 0.01);
-  drawDoodle(strokes, shown, M);
-  // the paw arrives from the corner and snaps
-  const pawIn = sstep(C.snap - 3, C.snap - 1, F.t);
-  if (pawIn > 0 && erase < 1) {
-    const px = lerp(-200, 260, pawIn), py = 900;
-    ctx.save(); ctx.globalAlpha = 1 - erase;
-    ink(circ(px, py, 70, 20, 60), { w: 4, seed: 800 }); pencil(circ(px, py, 70, 20, 60), [240, 225, 200], 0.9, 80);
-    for (let k = 0; k < 4; k++) { const a = -Math.PI * 0.9 + k * 0.45; const fx = px + Math.cos(a) * 80, fy = py + Math.sin(a) * 70; const snapped = snapT > 0 && k === 1 ? -30 : 0; ink(circ(fx, fy + snapped, 26, 12, 22), { w: 3.4, seed: 810 + k }); pencil(circ(fx, fy + snapped, 26, 12, 22), [240, 225, 200], 0.9, 90 + k); }
-    ctx.restore();
-  }
-  if (snapT > 0) {
-    const ring = clamp(snapT / 0.5, 0, 1);
-    for (let k = 0; k < 3; k++) ink(circ(300, 820, (50 + k * 70) * (0.5 + ring), 24), { w: 4, a: (1 - ring) * 0.9, seed: 830 + k, closed: true, col: PENCIL.yellow });
-    lettering('SNAP!', 520, 720, 120, INK, { rot: -0.08, outline: 'rgba(255,255,255,0.9)', a: 1 - sstep(0.8, 1.2, snapT) });
-    // the eraser sweeps across
-    if (erase > 0 && erase < 1) { const ex = lerp(-300, W + 300, erase); ctx.save(); ctx.translate(ex, 500); ctx.rotate(0.3); pencil([[-140, -60], [140, -60], [140, 60], [-140, 60]], PENCIL.pink, 0.9, 99); ink([[-140, -60], [140, -60], [140, 60], [-140, 60]], { w: 4, closed: true, seed: 840 }); ctx.restore(); }
-    ctx.fillStyle = `rgba(255,255,255,${0.9 * (1 - clamp(snapT / 0.25, 0, 1))})`; ctx.fillRect(0, 0, W, H);
-  }
-  if (since < 3) lettering('!!!', 1500, 200, 100, PENCIL.red, { rot: 0.1, a: 1 - since / 3 });
-  lettering('and the cat was the master all along', 70, H - 50, 34, [90, 85, 110], { font: 'Patrick Hand', align: 'left', a: sstep(0, 1.5, since) * (1 - erase) });
+  paper(PAPER.lilac); const t = F.t, since = t - C.master;
+  const F0 = { ...F, t: C.master - 0.02, on: 0, acc: 0, C };
+  frozenFlood(F0, H * 0.5);
+  const drop = sstep(0, 1.6, since), kRect = [760, lerp(-620, 30, drop), 400, 525];
+  const master = doodleMaster(), prog = reveal(F, C.master + 1.6, C.master + 6, total(master));
+  const b1 = sstep(0, 0.25, t - C.brow1), b2 = sstep(0, 0.25, t - C.brow2);
+  placed('key', kRect, 0, master, prog, { 1: { rot: 0.35 * b1, pivot: [292, 246] }, 2: { rot: -0.35 * b2, pivot: [318, 246] }, 3: { a: 0 } });
+  if (b1 > 0) lettering('!', 1230, 260, 120, INK, { a: b1 * (1 - sstep(2, 3, t - C.brow1)) });
+  if (b2 > 0) lettering('!!', 520, 300, 120, INK, { a: b2 * (1 - sstep(2, 3, t - C.brow2)) });
+  if (since > 1) for (let k = 0; k < 6; k++) lettering('!', 200 + k * 300, H * 0.5 - 300 - Math.sin(since * 4 + k) * 10, 60, PENCIL.red, { a: sstep(1, 1.5, since) });
+  caption('the Master is home', C.master, F);
 }
+// 7 · the drain  (drain → hush): the whisk spins, the water goes back, the brooms spiral away, the creatures un-draw themselves
+function sceneDrain(F, u, C) {
+  paper(PAPER.lilac); const t = F.t, since = t - C.drain;
+  const drain = sstep(2, 22, since), wl = lerp(H * 0.5, H + 80, drain);
+  const wRect = [720, 720, 480, 320], spin = since * 2.2;
+  placed('whisk', wRect, 0, doodleWhirl(), reveal(F, C.drain, C.drain + 4, total(doodleWhirl())), { 1: { rot: spin, pivot: [380, 235] } });
+  const centre = mapper('whisk', wRect)(380, 235);
+  for (let k = 0; k < 10; k++) { const s = sstep(3 + k * 1.4, 9 + k * 1.4, since); if (s >= 1) continue; const a = (k / 10) * TAU + since * (1.2 + s * 3), r = (1 - s) * (620 + k * 20); const x = centre[0] + Math.cos(a) * r, y = Math.min(wl - 40, centre[1] - 200 + Math.sin(a) * r * 0.5) + s * 200; ctx.save(); ctx.globalAlpha *= 1 - s * s; broom(F, x, y, 130 * (1 - s * 0.8), k, { rot: (a + Math.PI / 2) * (1 - s) + s * spin }); ctx.restore(); }
+  const undo = 1 - sstep(6, 20, since), settle = sstep(8, 22, since);
+  const arkRect = [260, lerp(wl - 320, H - 420, settle), 480, 384], arkRot = lerp(0.1, -0.02, settle);
+  placed('sneaker', arkRect, arkRot, doodleArk(), total(doodleArk()) * undo); aboard(F, arkRect, arkRot, 0.8, { 1: { rot: -0.5, pivot: [352, 720] }, 2: { rot: 0.5, pivot: [424, 720] } });
+  placed('fork', [1180, lerp(wl - 380, H - 340, settle), 420, 280], lerp(-0.75, 0.05, settle), doodleSeaKing(), total(doodleSeaKing()) * undo);
+  placed('lemons', [1400 + settle * 100, lerp(wl - 200, H - 330, settle), 390, 260], 0.03, doodleDucks(), total(doodleDucks()) * undo);
+  placed('banana', [30, lerp(wl - 300, H - 660, settle), 420, 280], -0.04, doodleDolphin(), total(doodleDolphin()) * undo);
+  if (wl < H) water(wl, F, { amp: 14 * (1 - drain), a: 0.55 });
+  placed('key', [760, 30, 400, 525], 0, doodleMaster(), null, { 1: { rot: 0.35, pivot: [292, 246] }, 2: { rot: -0.35, pivot: [318, 246] }, 3: { a: sstep(0, 1, since), rot: Math.sin(t * 3) * 0.1 * F.on, pivot: [330, 470] } });
+  caption('…and back it all goes', C.drain, F);
+}
+// 8 · the hush, and the final chord  (hush → end): the objects lie about again; the Master looms; THWACK
+function sceneHush(F, u, C) {
+  paper(PAPER.cream); const t = F.t, since = t - C.hush, hit = t - C.thwack;
+  for (const [n, r, rot] of [['sneaker', [120, 700, 300, 240], -0.05], ['lemons', [1450, 760, 260, 173], 0.04], ['banana', [460, 800, 280, 187], 0.06], ['fork', [1160, 820, 270, 180], -0.03], ['mug', [700, 60, 170, 170], 0.03], ['teapot', [40, 80, 300, 200], -0.02], ['whisk', [1500, 90, 300, 200], 0.05], ['toothbrush', [1720, 500, 160, 200], 0.02], ['scissors', [380, 300, 240, 180], -0.08]]) placed(n, r, rot, null);
+  const swing = hit > 0 ? -1.1 * Math.sin(Math.min(1, hit / 0.18) * Math.PI / 2) * (1 - sstep(0.5, 1.4, hit)) : 0;
+  placed('key', [1200, 180, 400, 525], swing, doodleMaster(), null, { 1: { rot: 0.35, pivot: [292, 246] }, 2: { rot: -0.35, pivot: [318, 246] }, 3: { rot: hit > 0 ? -0.8 * sstep(0, 0.15, hit) : 0, pivot: [330, 470] } });
+  const jump = hit > 0 ? -Math.sin(Math.min(1, hit / 0.6) * Math.PI) * 220 : 0, spinA = hit > 0 ? sstep(0, 0.7, hit) * TAU : 0;
+  placed('pencil', [800, 470 + jump, 220, 330], -0.04 + spinA + Math.sin(since * 2) * 0.02, doodleApprentice(), null, { 1: { rot: hit > 0 ? 1 : -0.5, pivot: [352, 720] }, 2: { rot: hit > 0 ? -1 : 0.5, pivot: [424, 720] } });
+  if (hit <= 0) { lettering('…', 1010, 400 + Math.sin(since) * 6, 80, INK, { a: sstep(1, 2, since) }); lettering('it was only a little spell', 640, 400, 34, [90, 85, 110], { font: 'Patrick Hand', a: sstep(6, 7.5, since) }); }
+  else {
+    const ring = clamp(hit / 0.5, 0, 1); for (let k = 0; k < 3; k++) ink(circ(1000, 600, (60 + k * 80) * (0.4 + ring), 24), { w: 5, a: (1 - ring) * 0.9, seed: 830 + k, closed: true, col: PENCIL.yellow });
+    lettering('THWACK!', 900, 300, 140, INK, { rot: -0.1, outline: 'rgba(255,255,255,0.9)', a: 1 - sstep(0.9, 1.4, hit) });
+    for (let k = 0; k < 6; k++) { const a = (k / 6) * TAU + hit * 3; sparkle(1000 + Math.cos(a) * (120 + hit * 300), 560 + Math.sin(a) * (80 + hit * 200), 14, k % 2 ? PENCIL.yellow : PENCIL.red, 1 - sstep(0.6, 1.2, hit), 900 + k); }
+    ctx.fillStyle = `rgba(255,255,255,${0.9 * (1 - clamp(hit / 0.25, 0, 1))})`; ctx.fillRect(0, 0, W, H);
+  }
+  if (hit > 0) caption('the end of the spell', C.thwack, F); else caption('the water is gone; the apprentice is not', C.hush, F);
+}
+// 9 · the end card: all seventeen photographs on the board, doodled
+const BOARD = (() => {
+  const rows = [['pencil', 'toothbrush', 'teapot', 'mug', 'clothespin', 'tape'], ['croissant', 'sneaker', 'banana', 'lemons', 'bulb', 'key'], ['scissors', 'broccoli', 'umbrella', 'whisk', 'fork']];
+  const out = [], hRow = 160, gap = 36;
+  rows.forEach((row, ri) => { const widths = row.map((n) => (hRow * PHOTO_SIZE[n][0]) / PHOTO_SIZE[n][1]); let x = (W - widths.reduce((a, b) => a + b, 0) - gap * (row.length - 1)) / 2; row.forEach((n, i) => { out.push([n, [x, 100 + ri * 235, widths[i], hRow], (ihash(ri, i, 1) - 0.5) * 0.12]); x += widths[i] + gap; }); });
+  return out;
+})();
 function sceneEnd(F, u, C) {
-  paper(PAPER.cream);
-  const T = F.t - C.end;
-  pinboard(F, 1, T > 0.6);
-  lettering(CONFIG.title, W / 2, 800, 76, INK, { a: sstep(0.2, 1, T) });
-  lettering(CONFIG.composer + '  ·  ' + CONFIG.credit, W / 2, 870, 34, [90, 85, 110], { font: 'Patrick Hand', a: sstep(0.4, 1.2, T) });
-  lettering('the end', W / 2, 960, 60, INK, { a: sstep(1.2, 2, T) });
+  paper(PAPER.cream); const T0 = F.t - C.end;
+  BOARD.forEach(([n, r, rot], k) => { const s = sstep(k * 0.1, k * 0.1 + 0.5, T0); if (s <= 0) return; ctx.save(); ctx.globalAlpha = s; placed(n, [r[0], r[1] - (1 - s) * 80, r[2], r[3]], rot, DOODLE_OF[n](), null); ctx.restore(); });
+  lettering(CONFIG.title, W / 2, 900, 70, INK, { a: sstep(2.2, 3, T0) });
+  lettering(CONFIG.composer + '  ·  ' + CONFIG.credit + '  ·  seventeen photographs', W / 2, 962, 32, [90, 85, 110], { font: 'Patrick Hand', a: sstep(2.6, 3.4, T0) });
+  lettering('the end', W / 2, 1032, 50, INK, { a: sstep(3.4, 4.2, T0) });
 }
-const SCENES = [['intro', (C) => 0, sceneIntro], ['balloon', (C) => C.balloon, sceneBalloon], ['choir', (C) => C.choir, sceneChoir], ['beach', (C) => C.beach, sceneBeach], ['launch', (C) => C.launch, sceneLaunch], ['master', (C) => C.master, sceneMaster], ['end', (C) => C.end, sceneEnd]];
+const SCENES = [['cut', () => 0, sceneCut], ['multiply', (C) => C.multiply, sceneMultiply], ['flood', (C) => C.flood, sceneFlood], ['island', (C) => C.island, sceneIsland], ['shriek', (C) => C.shriek, sceneShriek], ['master', (C) => C.master, sceneMaster], ['drain', (C) => C.drain, sceneDrain], ['hush', (C) => C.hush, sceneHush], ['end', (C) => C.end, sceneEnd]];
 function draw(t) {
   const F = frameAt(t); const C = cues(); boil = Math.floor(t * 8);
   let si = 0; for (let k = 0; k < SCENES.length; k++) if (t >= SCENES[k][1](C)) si = k;
@@ -508,13 +712,13 @@ document.getElementById('play').addEventListener('click', async () => { if (!A) 
 document.getElementById('file').addEventListener('change', async (e) => { const f = e.target.files[0]; if (!f) return; msg.textContent = 'Listening to the music…'; await loadBuffer(await f.arrayBuffer()); if (currentUrl && currentUrl.startsWith('blob:')) URL.revokeObjectURL(currentUrl); currentUrl = URL.createObjectURL(f); startPlayback(); });
 async function loadFonts() { try { await Promise.all([document.fonts.load('40px "Gochi Hand"'), document.fonts.load('40px "Patrick Hand"')]); } catch (e) {} fontReady = document.fonts.check('40px "Gochi Hand"'); return fontReady; }
 window.addEventListener('keydown', (e) => { if (e.code === 'Space' && audioEl) { e.preventDefault(); audioEl.paused ? audioEl.play() : audioEl.pause(); } });
-(async () => { try { await loadImages(); await loadUrl(CONFIG.audio); await loadFonts(); draw(cues().balloon + 20); } catch (e) { msg.textContent = 'Drop in an audio file to begin.'; } })();
+(async () => { try { await loadImages(); await loadUrl(CONFIG.audio); await loadFonts(); draw(cues().flood + 12); } catch (e) { msg.textContent = 'Drop in an audio file to begin.'; } })();
 window.MV = {
   async load(url) { await loadImages(); await loadUrl(url); return { frames: A.frames, duration: A.duration, end: A.endFrame / A.fps }; },
   fonts: loadFonts,
   renderFrame(i, fps) { document.body.classList.add('render'); draw(i / fps); return true; },
   jpeg(q) { return canvas.toDataURL('image/jpeg', q); },
-  analysis() { return { duration: A.duration, notes: A.onCount[A.frames - 1], cues: cues() }; },
+  analysis() { return { duration: A.duration, notes: A.onCount[A.frames - 1], accents: A.accCount[A.frames - 1], cues: cues() }; },
 };
 </script>
 </body>
