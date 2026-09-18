@@ -1,5 +1,5 @@
 node_modules
 .DS_Store
 dist/
-mountain-king/out/
-mountain-king/audio/*.wav
+*/out/
+*/audio/*.wav
